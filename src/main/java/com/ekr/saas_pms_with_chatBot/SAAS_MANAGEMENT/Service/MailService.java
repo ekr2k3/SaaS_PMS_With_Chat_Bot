@@ -7,6 +7,8 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+
 @Service
 @RequiredArgsConstructor
 public class MailService {
@@ -65,6 +67,53 @@ public class MailService {
         message.setTo(saasAdminEmail);
         message.setSubject(subject);
         message.setText(body);
+
+        mailSender.send(message);
+    }
+
+
+
+    // Gửi payURL cho Owner
+    public void sendPaymentEmail(
+            String ownerEmail,
+            String payUrl,
+            BigDecimal amount
+    ) {
+
+        SimpleMailMessage message =
+                new SimpleMailMessage();
+
+
+        message.setTo(ownerEmail);
+
+        message.setSubject(
+                "Thanh toán Subscription"
+        );
+
+
+        String content =
+                "Xin chào,\n\n"
+
+                        + "Yêu cầu đăng ký Subscription "
+                        + "của bạn đã được SaaS Admin "
+                        + "phê duyệt.\n\n"
+
+                        + "Số tiền cần thanh toán: "
+                        + amount
+                        + " VND\n\n"
+
+                        + "Vui lòng truy cập liên kết "
+                        + "bên dưới để thực hiện thanh toán:\n\n"
+
+                        + payUrl
+
+                        + "\n\n"
+                        + "Trân trọng,\n"
+                        + "SaaS PMS";
+
+
+        message.setText(content);
+
 
         mailSender.send(message);
     }
