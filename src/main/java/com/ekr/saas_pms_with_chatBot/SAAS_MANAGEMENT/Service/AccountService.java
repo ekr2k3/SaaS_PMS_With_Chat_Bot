@@ -5,20 +5,13 @@ import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.DTO.REQ.RegisterRequestDTO;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.DTO.RES.LoginResponseDTO;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.DTO.RES.RegisterResponseDTO;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.Account;
-import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.JwtHelper;
+import com.ekr.saas_pms_with_chatBot.filter.JwtHelper;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY.AccountRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-
-import java.util.List;
 
 @Service
 public class AccountService {

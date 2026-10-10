@@ -1,4 +1,4 @@
-package com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT;
+package com.ekr.saas_pms_with_chatBot.filter;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
