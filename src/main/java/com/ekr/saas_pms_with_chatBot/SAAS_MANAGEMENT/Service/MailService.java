@@ -117,4 +117,102 @@ public class MailService {
 
         mailSender.send(message);
     }
+
+    // =========================
+// PAYMENT SUCCESS EMAIL
+// =========================
+
+    public void sendPaymentSuccessEmail(
+            String ownerEmail,
+            String orderId,
+            BigDecimal amount
+    ) {
+
+        SimpleMailMessage message =
+                new SimpleMailMessage();
+
+        message.setTo(ownerEmail);
+
+        message.setSubject(
+                "[Hotel SaaS] Thanh toán Subscription thành công"
+        );
+
+        String content =
+                "Xin chào,\n\n"
+
+                        + "Thanh toán Subscription của bạn "
+                        + "đã được thực hiện thành công.\n\n"
+
+                        + "Mã đơn hàng: "
+                        + orderId
+                        + "\n\n"
+
+                        + "Số tiền: "
+                        + amount
+                        + " VND\n\n"
+
+                        + "Subscription của bạn đã được kích hoạt.\n"
+
+                        + "Tenant của bạn hiện đã có thể sử dụng hệ thống.\n\n"
+
+                        + "Trân trọng,\n"
+                        + "SaaS PMS";
+
+        message.setText(content);
+
+        mailSender.send(message);
+    }
+
+
+    // =========================
+// PAYMENT FAILED EMAIL
+// =========================
+
+    public void sendPaymentFailedEmail(
+            String ownerEmail,
+            String orderId,
+            BigDecimal amount,
+            String reason
+    ) {
+
+        SimpleMailMessage message =
+                new SimpleMailMessage();
+
+        message.setTo(ownerEmail);
+
+        message.setSubject(
+                "[Hotel SaaS] Thanh toán Subscription thất bại"
+        );
+
+        String content =
+                "Xin chào,\n\n"
+
+                        + "Thanh toán Subscription của bạn "
+                        + "không thành công.\n\n"
+
+                        + "Mã đơn hàng: "
+                        + orderId
+                        + "\n\n"
+
+                        + "Số tiền: "
+                        + amount
+                        + " VND\n\n"
+
+                        + "Lý do: "
+                        + reason
+                        + "\n\n"
+
+                        + "Subscription chưa được kích hoạt.\n"
+
+                        + "Vui lòng thực hiện thanh toán lại "
+                        + "hoặc liên hệ SaaS Admin.\n\n"
+
+                        + "Trân trọng,\n"
+                        + "SaaS PMS";
+
+        message.setText(content);
+
+        mailSender.send(message);
+    }
+
 }
