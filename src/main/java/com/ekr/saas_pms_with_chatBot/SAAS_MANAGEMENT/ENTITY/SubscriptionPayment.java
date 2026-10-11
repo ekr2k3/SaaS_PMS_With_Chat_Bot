@@ -3,10 +3,14 @@ package com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.enums.PaymentGateway;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.enums.PaymentStatus;
 import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Map;
 
@@ -44,6 +48,9 @@ import java.util.Map;
                 )
         }
 )
+@Getter
+@Setter
+@NoArgsConstructor
 public class SubscriptionPayment {
 
     @Id
@@ -90,6 +97,12 @@ public class SubscriptionPayment {
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 
+    @Column(name = "period_start")
+    private LocalDate periodStart;
+
+    @Column(name = "period_end")
+    private LocalDate periodEnd;
+
     @Column(
             name = "amount",
             nullable = false,
@@ -103,6 +116,8 @@ public class SubscriptionPayment {
             nullable = false,
             length = 3
     )
+
+
     private String currency;
 
     @JdbcTypeCode(SqlTypes.JSON)
@@ -119,8 +134,4 @@ public class SubscriptionPayment {
     )
     private Subscription subscription;
 
-    public SubscriptionPayment() {
-    }
-
-    // Generate getters and setters using IntelliJ.
 }

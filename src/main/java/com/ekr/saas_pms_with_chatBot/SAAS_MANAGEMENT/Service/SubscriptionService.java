@@ -105,7 +105,7 @@ public class SubscriptionService {
         // =========================
 
         Subscription subscription = Subscription.builder()
-                .status(Subscription.SubscriptionStatus.PENDING)
+                .status(Subscription.SubscriptionStatus.PENDING_APPROVAL)
                 .startDate(null)
                 .endDate(null)
                 .plan(plan)

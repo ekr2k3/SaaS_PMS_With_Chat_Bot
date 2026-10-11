@@ -51,7 +51,9 @@ public class Subscription {
     private Tenant tenant;
 
     public enum SubscriptionStatus {
-        PENDING,
+        PENDING,             // Trạng thái cũ, giữ tạm để tương thích DB
+        PENDING_APPROVAL,    // Chờ SaaS Admin duyệt
+        PENDING_PAYMENT,     // Đã duyệt, chờ thanh toán
         ACTIVE,
         EXPIRED
     }

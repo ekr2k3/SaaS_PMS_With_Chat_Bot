@@ -36,9 +36,14 @@ public class SubscriptionController {
     public ResponseEntity<List<PendingSubscriptionResponse>> getPendingSubscriptions() {
 
         List<PendingSubscriptionResponse> response =
-                subscriptionRepository
-                        .findByStatus(Subscription.SubscriptionStatus.PENDING)
-                        .stream()
+                java.util.stream.Stream.concat(
+                                subscriptionRepository.findByStatus(
+                                        Subscription.SubscriptionStatus.PENDING_APPROVAL
+                                ).stream(),
+                                subscriptionRepository.findByStatus(
+                                        Subscription.SubscriptionStatus.PENDING
+                                ).stream()
+                        )
                         .map(subscription -> new PendingSubscriptionResponse(
                                 subscription.getSubscriptionId(),
                                 subscription.getTenant().getAccount().getEmail(),

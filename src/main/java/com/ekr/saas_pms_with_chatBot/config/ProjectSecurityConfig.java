@@ -31,27 +31,38 @@ public class ProjectSecurityConfig {
 
 
     @Bean
-    SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain defaultSecurityFilterChain(
+            HttpSecurity http
+    ) throws Exception {
+
         http.authorizeHttpRequests(auth -> auth
+
                 .requestMatchers(
                         "/api/v1/saas/user/register",
                         "/api/v1/saas/user/login",
                         "/api/v1/saas/user/Plan/List",
                         "/api/v1/saas/user/Plan/Detail",
+                        "/api/webhooks/stripe",
+                        "/api/payments/stripe/success",
+                        "/api/payments/stripe/cancel",
                         "/error"
                 ).permitAll()
+
                 .requestMatchers(
-                        "/api/v1/saas/admin/**"
+                        "/api/v1/saas/admin/**",
+                        "/api/admin/subscriptions/**"
                 ).hasRole("ADMIN")
+
                 .requestMatchers(
                         "/api/v1/user/sendRequest"
                 ).hasRole("OWNER")
+
                 .anyRequest().authenticated()
         );
-        http.cors(Customizer.withDefaults());   // Bật CORS
-        http.csrf(csrf -> csrf.disable());     // Tắt CSRF
-        //http.formLogin(withDefaults());
-        //http.httpBasic(withDefaults());
+
+        http.cors(Customizer.withDefaults());
+
+        http.csrf(csrf -> csrf.disable());
 
         http.addFilterBefore(
                 JwtFilter,

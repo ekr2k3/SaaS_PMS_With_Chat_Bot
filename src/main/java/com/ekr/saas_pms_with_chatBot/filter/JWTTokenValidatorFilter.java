@@ -130,6 +130,18 @@ public class JWTTokenValidatorFilter extends OncePerRequestFilter {
 //        if(path.startsWith("/api/v1/auth/")) return true;
 //        if(path.startsWith("/api/v1/contacts/")) return true;
 
+
+        if (path.equals("/api/webhooks/stripe")) {
+            return true;
+        }
+
+        if (path.equals("/api/payments/stripe/success")) {
+            return true;
+        }
+
+        if (path.equals("/api/payments/stripe/cancel")) {
+            return true;
+        }
         return false;
     }
 }

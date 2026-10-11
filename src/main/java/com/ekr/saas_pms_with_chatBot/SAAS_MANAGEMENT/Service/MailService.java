@@ -74,47 +74,43 @@ public class MailService {
 
 
     // Gửi payURL cho Owner
+
     public void sendPaymentEmail(
             String ownerEmail,
             String payUrl,
-            BigDecimal amount
+            BigDecimal amount,
+            String currency,
+            String planName
     ) {
-
-        SimpleMailMessage message =
-                new SimpleMailMessage();
-
+        SimpleMailMessage message = new SimpleMailMessage();
 
         message.setTo(ownerEmail);
+        message.setSubject("[Hotel SaaS] Thanh toán Subscription");
 
-        message.setSubject(
-                "Thanh toán Subscription"
+        String content = """
+            Xin chào,
+
+            Yêu cầu đăng ký Subscription của bạn đã được SaaS Admin phê duyệt.
+
+            Gói đăng ký: %s
+            Số tiền cần thanh toán: %s %s
+
+            Vui lòng mở đường dẫn dưới đây để thanh toán:
+            %s
+
+            Lưu ý: Subscription chỉ được kích hoạt sau khi hệ thống
+            xác nhận thanh toán thành công.
+
+            Trân trọng,
+            SaaS PMS
+            """.formatted(
+                planName,
+                amount.toPlainString(),
+                currency,
+                payUrl
         );
 
-
-        String content =
-                "Xin chào,\n\n"
-
-                        + "Yêu cầu đăng ký Subscription "
-                        + "của bạn đã được SaaS Admin "
-                        + "phê duyệt.\n\n"
-
-                        + "Số tiền cần thanh toán: "
-                        + amount
-                        + " VND\n\n"
-
-                        + "Vui lòng truy cập liên kết "
-                        + "bên dưới để thực hiện thanh toán:\n\n"
-
-                        + payUrl
-
-                        + "\n\n"
-                        + "Trân trọng,\n"
-                        + "SaaS PMS";
-
-
         message.setText(content);
-
-
         mailSender.send(message);
     }
 
@@ -215,4 +211,117 @@ public class MailService {
         mailSender.send(message);
     }
 
+    public void sendSubscriptionRenewalReminder(
+            String ownerEmail,
+            String ownerName,
+            String tenantName,
+            Long subscriptionId,
+            java.time.LocalDate endDate
+    ) {
+        SimpleMailMessage message = new SimpleMailMessage();
+
+        message.setTo(ownerEmail);
+        message.setSubject(
+                "[Hotel SaaS] Nhắc gia hạn Subscription"
+        );
+
+        String content = """
+            Xin chào %s,
+
+            Đây là email nhắc gia hạn Subscription của tổ chức bạn.
+
+            Thông tin Subscription:
+            - Tổ chức: %s
+            - Subscription ID: %d
+            - Ngày hết hạn hiện tại: %s
+
+            Vui lòng đăng nhập hệ thống để kiểm tra thông tin
+            gói dịch vụ và thực hiện gia hạn nếu cần.
+
+            Email này chỉ nhằm mục đích nhắc nhở.
+            Hệ thống không tự động thanh toán hoặc gia hạn
+            Subscription khi gửi email này.
+
+            Trân trọng,
+            SaaS PMS
+            """.formatted(
+                ownerName,
+                tenantName,
+                subscriptionId,
+                endDate
+        );
+
+        message.setText(content);
+
+        // Nếu SMTP/provider ném exception, để service nghiệp vụ
+        // xử lý lỗi của Subscription hiện tại.
+        mailSender.send(message);
+    }
+
+
+    public void sendSubscriptionExpiredEmail(
+            String ownerEmail,
+            String ownerName,
+            String tenantName,
+            Long subscriptionId
+    ) {
+
+        if (ownerEmail == null || ownerEmail.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Email Owner không hợp lệ"
+            );
+        }
+
+        String safeOwnerName =
+                ownerName == null || ownerName.isBlank()
+                        ? "Quý khách"
+                        : ownerName;
+
+        String safeTenantName =
+                tenantName == null || tenantName.isBlank()
+                        ? "Tổ chức của bạn"
+                        : tenantName;
+
+        SimpleMailMessage message = new SimpleMailMessage();
+
+        message.setTo(ownerEmail);
+
+        message.setSubject(
+                "[Hotel SaaS] Subscription hết hạn - PMS đã bị vô hiệu hóa"
+        );
+
+        String content = """
+            Xin chào %s,
+
+            Subscription của tổ chức bạn đã hết hạn và chưa có
+            thanh toán thành công cho kỳ gia hạn hiện tại.
+
+            Thông tin:
+            - Tổ chức: %s
+            - Subscription ID: %d
+            - Trạng thái Subscription: EXPIRED
+            - Trạng thái Tenant: INACTIVE
+
+            Quyền sử dụng các chức năng PMS của tổ chức đã bị
+            vô hiệu hóa.
+
+            Tài khoản Owner vẫn có thể đăng nhập để xem thông tin
+            và thực hiện gia hạn theo chức năng hệ thống cung cấp.
+
+            Sau khi thanh toán gia hạn thành công và được hệ thống
+            xác nhận, quyền sử dụng PMS sẽ được kích hoạt lại theo
+            chính sách của hệ thống.
+
+            Trân trọng,
+            SaaS PMS
+            """.formatted(
+                safeOwnerName,
+                safeTenantName,
+                subscriptionId
+        );
+
+        message.setText(content);
+
+        mailSender.send(message);
+    }
 }
