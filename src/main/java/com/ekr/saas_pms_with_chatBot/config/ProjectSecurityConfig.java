@@ -54,7 +54,8 @@ public class ProjectSecurityConfig {
                 ).hasRole("ADMIN")
 
                 .requestMatchers(
-                        "/api/v1/user/sendRequest"
+                        "/api/v1/user/sendRequest",
+                        "/api/v1/user/subscriptions/late-renewal"
                 ).hasRole("OWNER")
 
                 .anyRequest().authenticated()

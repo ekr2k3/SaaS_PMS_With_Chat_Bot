@@ -1,10 +1,12 @@
 package com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Controller;
 
 
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.DTO.REQ.LateSubscriptionRenewalRequest;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.DTO.REQ.SubscriptionRequestDTO;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.DTO.RES.PendingSubscriptionResponse;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.Subscription;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY.SubscriptionRepository;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Service.LateSubscriptionRenewalService;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Service.SubscriptionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +25,10 @@ public class SubscriptionController {
 
     @Autowired
     SubscriptionRepository subscriptionRepository;
+
+
+    @Autowired
+    private LateSubscriptionRenewalService lateSubscriptionRenewalService;
 
     @PostMapping("/sendRequest")
     public ResponseEntity<?> sendRequest(@RequestBody SubscriptionRequestDTO req){
@@ -54,5 +60,20 @@ public class SubscriptionController {
                         .toList();
 
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/subscriptions/late-renewal")
+    @PreAuthorize("hasRole('OWNER')")
+    public ResponseEntity<?> lateRenewal(
+            @jakarta.validation.Valid
+            @RequestBody LateSubscriptionRenewalRequest request,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(
+                lateSubscriptionRenewalService.createRenewalPayment(
+                        request.getPlanId(),
+                        authentication
+                )
+        );
     }
 }

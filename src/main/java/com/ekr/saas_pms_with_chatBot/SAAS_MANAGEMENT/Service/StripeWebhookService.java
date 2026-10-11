@@ -7,6 +7,7 @@ import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.Tenant;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.enums.PaymentGateway;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.enums.PaymentStatus;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY.SubscriptionPaymentRepository;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY.SubscriptionPlanRepository;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY.SubscriptionRepository;
 import com.ekr.saas_pms_with_chatBot.config.StripeProperties;
 
@@ -35,16 +36,46 @@ public class StripeWebhookService {
     private final StripeProperties stripeProperties;
     private final SubscriptionPaymentRepository paymentRepository;
     private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionPlanRepository planRepository;
 
     public StripeWebhookService(
             StripeProperties stripeProperties,
             SubscriptionPaymentRepository paymentRepository,
-            SubscriptionRepository subscriptionRepository
+            SubscriptionRepository subscriptionRepository,
+             SubscriptionPlanRepository planRepository
     ) {
         this.stripeProperties = stripeProperties;
         this.paymentRepository = paymentRepository;
         this.subscriptionRepository = subscriptionRepository;
+        this.planRepository = planRepository;
     }
+
+
+    private boolean isLateRenewal(SubscriptionPayment payment) {
+        Map<String, Object> metadata = payment.getMetadata();
+
+        return metadata != null
+                && metadata.containsKey("renewalPlanId");
+    }
+
+
+    private Long parsePlanId(Object value, String fieldName) {
+        if (value == null || !StringUtils.hasText(value.toString())) {
+            throw new IllegalArgumentException(
+                    "Thiếu metadata: " + fieldName
+            );
+        }
+
+        try {
+            return Long.valueOf(value.toString());
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(
+                    "Metadata không hợp lệ: " + fieldName,
+                    exception
+            );
+        }
+    }
+
 
     /**
      * Xác minh chữ ký, phân loại Event và xử lý nghiệp vụ.
@@ -135,23 +166,24 @@ public class StripeWebhookService {
      */
     private void handlePaymentSucceeded(Session session) {
 
-        // 1. Tìm và xác minh Payment từ Stripe Checkout Session.
-        SubscriptionPayment payment = findAndValidatePayment(session);
+        // 1. Xác minh danh tính Payment và khóa bản ghi.
+        SubscriptionPayment payment =
+                findAndValidatePayment(session);
 
-        // 2. Idempotency: Payment đã thành công thì không xử lý lại.
+        // 2. Idempotency: không xử lý lại Payment đã thành công.
         if (payment.getStatus() == PaymentStatus.SUCCEEDED) {
             return;
         }
 
-        // 3. Chỉ xử lý khi Stripe xác nhận đã thanh toán.
+        // 3. Chỉ tiếp tục nếu Stripe xác nhận đã thanh toán.
         if (!"paid".equalsIgnoreCase(session.getPaymentStatus())) {
             return;
         }
 
-        // 4. Xác minh số tiền và tiền tệ.
+        // 4. Xác minh số tiền và currency.
         validateAmountAndCurrency(session, payment);
 
-        // 5. Lấy Subscription liên kết với Payment.
+        // 5. Lấy Subscription hiện tại.
         Subscription subscription = payment.getSubscription();
 
         if (subscription == null) {
@@ -160,20 +192,7 @@ public class StripeWebhookService {
             );
         }
 
-        // 6. Kiểm tra Plan.
-        SubscriptionPlan plan = subscription.getPlan();
-
-        if (plan == null
-                || plan.getDuration() == null
-                || plan.getDurationUnit() == null
-                || plan.getDuration() <= 0) {
-
-            throw new IllegalStateException(
-                    "Subscription Plan không có thời hạn hợp lệ"
-            );
-        }
-
-        // 7. Lấy PaymentIntent ID từ Stripe.
+        // 6. Xác minh PaymentIntent.
         String paymentIntentId = session.getPaymentIntent();
 
         if (!StringUtils.hasText(paymentIntentId)) {
@@ -182,40 +201,94 @@ public class StripeWebhookService {
             );
         }
 
-        // 8. Xác định kỳ dịch vụ mà Payment thanh toán.
+        // 7. Xác định Plan và kỳ dịch vụ.
+        SubscriptionPlan selectedPlan;
         LocalDate startDate;
         LocalDate endDate;
 
-        if (payment.getPeriodStart() != null
-                && payment.getPeriodEnd() != null) {
+        // Capture một lần để ngày bắt đầu và paidAt nhất quán.
+        LocalDateTime paidAt = LocalDateTime.now(
+                java.time.ZoneId.of("Asia/Ho_Chi_Minh")
+        );
 
-            // Payment đã được gắn với một kỳ dịch vụ cụ thể.
-            startDate = payment.getPeriodStart();
-            endDate = payment.getPeriodEnd();
+        if (isLateRenewal(payment)) {
 
-        } else if (payment.getPeriodStart() == null
-                && payment.getPeriodEnd() == null
-                && (subscription.getStartDate() == null
-                || subscription.getEndDate() == null)) {
+            // 7a. Gia hạn muộn: lấy Plan đã chọn khi tạo Payment.
+            Map<String, Object> metadata = payment.getMetadata();
 
-            // Thanh toán lần đầu: Subscription chưa có kỳ sử dụng.
-            startDate = LocalDate.now(
-                    java.time.ZoneId.of("Asia/Ho_Chi_Minh")
+            Long renewalPlanId = parsePlanId(
+                    metadata.get("renewalPlanId"),
+                    "renewalPlanId"
             );
 
-            endDate = calculateEndDate(startDate, plan);
+            selectedPlan = planRepository.findById(renewalPlanId)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Không tìm thấy Plan gia hạn: "
+                                    + renewalPlanId
+                    ));
+
+            // 7b. Kiểm tra thời hạn Plan.
+            if (selectedPlan.getDuration() == null
+                    || selectedPlan.getDuration() <= 0
+                    || selectedPlan.getDurationUnit() == null) {
+                throw new IllegalStateException(
+                        "Plan gia hạn không có thời hạn hợp lệ"
+                );
+            }
+
+            // 7c. Chỉ bắt đầu kỳ mới khi thanh toán được xác nhận.
+            startDate = paidAt.toLocalDate();
+
+            endDate = calculateEndDate(
+                    startDate,
+                    selectedPlan
+            );
 
         } else {
 
-            // Không tự ý ghi đè kỳ sử dụng đang có.
-            throw new IllegalStateException(
-                    "Payment thiếu hoặc không đầy đủ periodStart/periodEnd "
-                            + "cho Subscription đã có kỳ sử dụng. paymentId="
-                            + payment.getId()
-            );
+            // 7d. Payment thông thường:
+            // giữ logic Plan và kỳ sử dụng hiện tại.
+            selectedPlan = subscription.getPlan();
+
+            if (selectedPlan == null
+                    || selectedPlan.getDuration() == null
+                    || selectedPlan.getDuration() <= 0
+                    || selectedPlan.getDurationUnit() == null) {
+                throw new IllegalStateException(
+                        "Subscription Plan không có thời hạn hợp lệ"
+                );
+            }
+
+            if (payment.getPeriodStart() != null
+                    && payment.getPeriodEnd() != null) {
+
+                // Payment đã được gắn với một kỳ cụ thể.
+                startDate = payment.getPeriodStart();
+                endDate = payment.getPeriodEnd();
+
+            } else if (payment.getPeriodStart() == null
+                    && payment.getPeriodEnd() == null
+                    && (subscription.getStartDate() == null
+                    || subscription.getEndDate() == null)) {
+
+                // Thanh toán lần đầu theo logic hiện tại.
+                startDate = paidAt.toLocalDate();
+
+                endDate = calculateEndDate(
+                        startDate,
+                        selectedPlan
+                );
+
+            } else {
+                throw new IllegalStateException(
+                        "Payment thiếu hoặc không đầy đủ "
+                                + "periodStart/periodEnd. paymentId="
+                                + payment.getId()
+                );
+            }
         }
 
-        // 9. Kiểm tra kỳ dịch vụ hợp lệ.
+        // 8. Kiểm tra kỳ dịch vụ.
         if (!endDate.isAfter(startDate)) {
             throw new IllegalStateException(
                     "Kỳ thanh toán không hợp lệ. paymentId="
@@ -223,18 +296,18 @@ public class StripeWebhookService {
             );
         }
 
-        // 10. Cập nhật thông tin Payment.
+        // 9. Cập nhật Payment.
         payment.setTransactionId(paymentIntentId);
         payment.setStatus(PaymentStatus.SUCCEEDED);
-        payment.setPaidAt(
-                LocalDateTime.now(
-                        java.time.ZoneId.of("Asia/Ho_Chi_Minh")
-                )
-        );
+        payment.setPaidAt(paidAt);
+        payment.setPeriodStart(startDate);
+        payment.setPeriodEnd(endDate);
 
         paymentRepository.save(payment);
 
-        // 11. Cập nhật kỳ sử dụng Subscription theo kỳ của Payment.
+        // 10. Cập nhật Subscription.
+        // Gia hạn muộn có thể chuyển từ Plan A sang Plan B.
+        subscription.setPlan(selectedPlan);
         subscription.setStartDate(startDate);
         subscription.setEndDate(endDate);
         subscription.setStatus(
@@ -243,17 +316,16 @@ public class StripeWebhookService {
 
         subscriptionRepository.save(subscription);
 
-        // 12. Kích hoạt Tenant nếu đang INACTIVE.
-        // Không tự động gỡ trạng thái SUSPENDED.
+        // 11. Kích hoạt Tenant nếu đang INACTIVE.
+        // Không tự động mở lại Tenant SUSPENDED.
         Tenant tenant = subscription.getTenant();
 
         if (tenant != null
                 && tenant.getStatus() == Tenant.TenantStatus.INACTIVE) {
-
             tenant.setStatus(Tenant.TenantStatus.ACTIVE);
         }
 
-        // Các thay đổi được ghi nhận trong transaction hiện tại.
+        // Tenant được cập nhật qua dirty checking trong transaction.
     }
 
     /**
@@ -261,20 +333,31 @@ public class StripeWebhookService {
      */
     private void handlePaymentFailed(Session session) {
 
-        SubscriptionPayment payment = findAndValidatePayment(session);
+        SubscriptionPayment payment =
+                findAndValidatePayment(session);
 
-        // Không được hạ trạng thái một giao dịch đã thành công.
+        // Không ghi đè giao dịch đã thành công.
         if (payment.getStatus() == PaymentStatus.SUCCEEDED) {
             return;
         }
 
-        if (payment.getStatus() == PaymentStatus.REFUNDED
+        // Không ghi đè các trạng thái thanh toán đã kết thúc.
+        if (payment.getStatus() == PaymentStatus.CANCELLED
+                || payment.getStatus() == PaymentStatus.REFUNDED
                 || payment.getStatus() == PaymentStatus.PARTIALLY_REFUNDED) {
             return;
         }
 
-        payment.setStatus(PaymentStatus.FAILED);
-        paymentRepository.save(payment);
+        // Chỉ chuyển trạng thái đang chờ xử lý sang FAILED.
+        if (payment.getStatus() == PaymentStatus.PENDING
+                || payment.getStatus() == PaymentStatus.PROCESSING) {
+
+            payment.setStatus(PaymentStatus.FAILED);
+            paymentRepository.save(payment);
+        }
+
+        // Không kích hoạt Subscription.
+        // Không kích hoạt Tenant.
     }
 
     /**
@@ -304,7 +387,7 @@ public class StripeWebhookService {
     private SubscriptionPayment findAndValidatePayment(
             Session session
     ) {
-
+        // 1. Đọc metadata từ Stripe Checkout Session.
         Map<String, String> metadata = session.getMetadata();
 
         if (metadata == null) {
@@ -317,6 +400,7 @@ public class StripeWebhookService {
                 metadata.get("subscription_payment_id");
 
         String orderId = metadata.get("order_id");
+
         String subscriptionIdValue =
                 metadata.get("subscription_id");
 
@@ -328,6 +412,7 @@ public class StripeWebhookService {
             );
         }
 
+        // 2. Parse các ID.
         final Long paymentId;
         final Long subscriptionId;
 
@@ -341,33 +426,40 @@ public class StripeWebhookService {
             );
         }
 
+        // 3. Tìm và khóa Payment.
         SubscriptionPayment payment = paymentRepository
                 .findByIdForUpdate(paymentId)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Không tìm thấy SubscriptionPayment: " + paymentId
                 ));
 
+        // 4. Xác minh Payment thuộc Stripe.
         if (payment.getPaymentGateway() != PaymentGateway.STRIPE) {
             throw new IllegalArgumentException(
                     "Payment không thuộc Stripe"
             );
         }
 
+        // 5. Xác minh Order ID.
         if (!orderId.equals(payment.getOrderId())) {
             throw new IllegalArgumentException(
                     "Order ID không khớp với Payment trong database"
             );
         }
 
+        // 6. Xác minh Subscription ID.
         Subscription subscription = payment.getSubscription();
 
         if (subscription == null
-                || !subscriptionId.equals(subscription.getSubscriptionId())) {
+                || !subscriptionId.equals(
+                subscription.getSubscriptionId()
+        )) {
             throw new IllegalArgumentException(
                     "Subscription ID không khớp với Payment"
             );
         }
 
+        // 7. Xác minh Checkout Session ID.
         Map<String, Object> paymentMetadata = payment.getMetadata();
 
         if (paymentMetadata == null) {
@@ -384,6 +476,25 @@ public class StripeWebhookService {
             throw new IllegalArgumentException(
                     "Checkout Session ID không khớp với Payment"
             );
+        }
+
+        // 8. Chỉ bắt buộc đối chiếu Plan đối với gia hạn muộn.
+        if (isLateRenewal(payment)) {
+            Long storedPlanId = parsePlanId(
+                    paymentMetadata.get("renewalPlanId"),
+                    "renewalPlanId"
+            );
+
+            Long stripePlanId = parsePlanId(
+                    metadata.get("plan_id"),
+                    "plan_id"
+            );
+
+            if (!storedPlanId.equals(stripePlanId)) {
+                throw new IllegalArgumentException(
+                        "Plan ID trên Stripe không khớp với Payment"
+                );
+            }
         }
 
         return payment;

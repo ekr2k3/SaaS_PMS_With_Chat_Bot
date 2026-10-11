@@ -201,7 +201,8 @@ public class AdminSubscriptionPaymentService {
                     plan.getName(),
                     stripeAmount,
                     currency,
-                    subscriptionId
+                    subscriptionId,
+                    plan.getPlanId()
             );
 
             if (session.getId() == null

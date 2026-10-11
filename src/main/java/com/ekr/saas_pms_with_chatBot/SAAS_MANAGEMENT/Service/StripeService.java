@@ -28,7 +28,8 @@ public class StripeService {
             String planName,
             Long amountInSmallestUnit,
             String currency,
-            Long subscriptionId
+            Long subscriptionId,
+            Long planId
     ) throws StripeException {
 
         if (!StringUtils.hasText(stripeProperties.getSecretKey())) {
@@ -84,6 +85,7 @@ public class StripeService {
                                 "subscription_id",
                                 subscriptionId.toString()
                         )
+                        .putMetadata("plan_id", planId.toString())
                         .build();
 
         RequestOptions requestOptions =
