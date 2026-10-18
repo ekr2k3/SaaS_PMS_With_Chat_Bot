@@ -50,4 +50,29 @@ public interface SubscriptionPaymentRepository
             @Param("periodStart") LocalDate periodStart,
             @Param("periodEnd") LocalDate periodEnd
     );
+
+    @Query("""
+    SELECT p
+    FROM SubscriptionPayment p
+    WHERE p.subscription.subscriptionId = :subscriptionId
+      AND p.periodStart = :periodStart
+""")
+    List<SubscriptionPayment> findPaymentsForPeriodStart(
+            @Param("subscriptionId") Long subscriptionId,
+            @Param("periodStart") LocalDate periodStart
+    );
+
+    @Query("""
+    SELECT p
+    FROM SubscriptionPayment p
+    WHERE p.subscription.subscriptionId = :subscriptionId
+      AND p.status = :status
+      AND p.periodStart = :periodStart
+""")
+    List<SubscriptionPayment> findSuccessfulPaymentsForPeriodStart(
+            @Param("subscriptionId") Long subscriptionId,
+            @Param("status") PaymentStatus status,
+            @Param("periodStart") LocalDate periodStart
+    );
+
 }

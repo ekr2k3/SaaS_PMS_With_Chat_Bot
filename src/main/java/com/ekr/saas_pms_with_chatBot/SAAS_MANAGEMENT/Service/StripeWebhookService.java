@@ -42,7 +42,7 @@ public class StripeWebhookService {
             StripeProperties stripeProperties,
             SubscriptionPaymentRepository paymentRepository,
             SubscriptionRepository subscriptionRepository,
-             SubscriptionPlanRepository planRepository
+            SubscriptionPlanRepository planRepository
     ) {
         this.stripeProperties = stripeProperties;
         this.paymentRepository = paymentRepository;
