@@ -4,9 +4,13 @@ import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.DTO.REQ.SubscriptionPlanCre
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.DTO.RES.SubscriptionPlanResponse;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.SubscriptionPlan;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY.SubscriptionPlanRepository;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -71,5 +75,55 @@ public class SubscriptionPlanController {
     @GetMapping("/user/Plan/Detail")
     public SubscriptionPlan PlanDetail(@RequestParam Long id){
         return subscriptionPlanRepository.findByPlanId(id);
+    }
+
+
+    // SAAS ADMIN: CẬP NHẬT SUBSCRIPTION PLAN
+    @PutMapping("/admin/Plan/{planId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<SubscriptionPlanResponse> updatePlan(
+            @PathVariable Long planId,
+            @Valid @RequestBody SubscriptionPlanCreateRequest req) {
+
+        // 1. Tìm Plan cần cập nhật
+        SubscriptionPlan plan = subscriptionPlanRepository
+                .findById(planId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Không tìm thấy Subscription Plan: " + planId
+                ));
+
+        // 2. Cập nhật thông tin Plan
+        plan.setName(req.getName());
+        plan.setDescription(req.getDescription());
+        plan.setPrice(req.getPrice());
+        plan.setDuration(req.getDuration());
+        plan.setDurationUnit(req.getDurationUnit());
+        plan.setMaxUsers(req.getMaxUsers());
+        plan.setMaxProperties(req.getMaxProperties());
+        plan.setMaxStorage(req.getMaxStorage());
+        plan.setMaxRooms(req.getMaxRooms());
+
+        // 3. Lưu thay đổi
+        SubscriptionPlan savedPlan =
+                subscriptionPlanRepository.save(plan);
+
+        // 4. Trả Response DTO
+        SubscriptionPlanResponse response =
+                SubscriptionPlanResponse.builder()
+                        .planId(savedPlan.getPlanId())
+                        .name(savedPlan.getName())
+                        .description(savedPlan.getDescription())
+                        .price(savedPlan.getPrice())
+                        .duration(savedPlan.getDuration())
+                        .durationUnit(savedPlan.getDurationUnit())
+                        .maxUsers(savedPlan.getMaxUsers())
+                        .maxProperties(savedPlan.getMaxProperties())
+                        .maxStorage(savedPlan.getMaxStorage())
+                        .maxRooms(savedPlan.getMaxRooms())
+                        .status(savedPlan.getStatus())
+                        .build();
+
+        return ResponseEntity.ok(response);
     }
 }

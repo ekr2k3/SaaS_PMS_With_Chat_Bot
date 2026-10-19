@@ -35,4 +35,20 @@ public class AdminSubscriptionController {
                 )
         );
     }
+
+    @PostMapping("/{subscriptionId}/reject")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, String>> rejectSubscription(
+            @PathVariable Long subscriptionId
+    ) {
+        paymentService.rejectSubscription(subscriptionId);
+
+        return ResponseEntity.ok(
+                Map.of(
+                        "message",
+                        "Đã từ chối yêu cầu Subscription. "
+                                + "Hệ thống đã xử lý gửi email thông báo."
+                )
+        );
+    }
 }

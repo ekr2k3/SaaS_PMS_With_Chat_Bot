@@ -24,8 +24,12 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+
 @Service
 public class AdminSubscriptionPaymentService {
+
+
+
 
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionPaymentRepository paymentRepository;
@@ -285,4 +289,68 @@ public class AdminSubscriptionPaymentService {
                 .setScale(0, RoundingMode.UNNECESSARY)
                 .longValueExact();
     }
+
+    @Transactional
+    public void rejectSubscription(Long subscriptionId) {
+
+        Subscription subscription = subscriptionRepository
+                .findByIdForUpdate(subscriptionId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Không tìm thấy Subscription"
+                ));
+
+        if (subscription.getStatus()
+                != Subscription.SubscriptionStatus.PENDING_APPROVAL
+                && subscription.getStatus()
+                != Subscription.SubscriptionStatus.PENDING) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Chỉ được từ chối Subscription đang chờ phê duyệt"
+            );
+        }
+
+        Tenant tenant = subscription.getTenant();
+
+        if (tenant == null || tenant.getAccount() == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Không tìm thấy thông tin Owner của Subscription"
+            );
+        }
+
+        Account owner = tenant.getAccount();
+
+        if (owner.getEmail() == null || owner.getEmail().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Owner chưa có email hợp lệ"
+            );
+        }
+
+        // 1. Cập nhật trạng thái từ chối.
+        subscription.setStatus(
+                Subscription.SubscriptionStatus.REJECTED
+        );
+
+        subscriptionRepository.saveAndFlush(subscription);
+
+        // 2. Gửi email cho Owner.
+        // Lỗi email không làm mất kết quả từ chối đã xử lý.
+        try {
+            mailService.sendSubscriptionRejectedEmail(
+                    owner.getEmail(),
+                    owner.getName(),
+                    tenant.getName(),
+                    subscription.getSubscriptionId(),
+                    subscription.getPlan().getName()
+            );
+        } catch (Exception e) {
+            System.out.println(
+                    "Không gửi được email từ chối Subscription ID " + subscriptionId + "tới " + owner.getEmail() + e
+            );
+        }
+    }
+
 }

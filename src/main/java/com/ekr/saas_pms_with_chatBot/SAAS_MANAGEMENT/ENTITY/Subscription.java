@@ -55,6 +55,7 @@ public class Subscription {
         PENDING_APPROVAL,    // Chờ SaaS Admin duyệt
         PENDING_PAYMENT,     // Đã duyệt, chờ thanh toán
         ACTIVE,
-        EXPIRED
+        EXPIRED,
+        REJECTED
     }
 }

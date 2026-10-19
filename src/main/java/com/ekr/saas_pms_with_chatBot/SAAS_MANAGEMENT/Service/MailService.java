@@ -324,4 +324,47 @@ public class MailService {
 
         mailSender.send(message);
     }
+
+    // EMAIL THÔNG BÁO TỪ CHỐI SUBSCRIPTION
+    public void sendSubscriptionRejectedEmail(
+            String ownerEmail,
+            String ownerName,
+            String tenantName,
+            Long subscriptionId,
+            String planName
+    ) {
+        SimpleMailMessage message = new SimpleMailMessage();
+
+        message.setTo(ownerEmail);
+        message.setSubject(
+                "[Hotel SaaS] Yêu cầu đăng ký Subscription bị từ chối"
+        );
+
+        String content = """
+            Xin chào %s,
+
+            Rất tiếc, yêu cầu đăng ký Subscription của bạn
+            đã bị SaaS Admin từ chối.
+
+            Thông tin yêu cầu:
+            - Tổ chức: %s
+            - Subscription ID: %d
+            - Gói đăng ký: %s
+            - Trạng thái: REJECTED
+
+            Bạn vui lòng liên hệ bộ phận hỗ trợ của Hotel SaaS
+            để biết thêm thông tin nếu cần.
+
+            Trân trọng,
+            SaaS PMS
+            """.formatted(
+                ownerName,
+                tenantName,
+                subscriptionId,
+                planName
+        );
+
+        message.setText(content);
+        mailSender.send(message);
+    }
 }
