@@ -30,12 +30,12 @@ public class MailService {
     ) {
 
         String subject =
-                "[Hotel SaaS] Có yêu cầu Subscription mới cần xét duyệt";
+                "[Hotel SaaS] Có yêu cầu Subscription cần xét duyệt";
 
         String body = """
                 Kính gửi SaaS Admin,
 
-                Hệ thống vừa nhận được một yêu cầu đăng ký Subscription mới.
+                Hệ thống vừa nhận được yêu cầu đăng ký mới hoặc gửi lại Subscription cần xét duyệt.
 
                 Thông tin yêu cầu:
 

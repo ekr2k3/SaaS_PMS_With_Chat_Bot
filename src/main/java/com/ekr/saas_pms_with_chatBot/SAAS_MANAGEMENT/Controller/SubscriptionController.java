@@ -11,6 +11,7 @@ import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY.SubscriptionRepo
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Service.EarlySubscriptionRenewalService;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Service.LateSubscriptionRenewalService;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Service.SubscriptionService;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Service.AdminSubscriptionPaymentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -19,6 +20,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/user")
@@ -28,6 +30,9 @@ public class SubscriptionController {
 
     @Autowired
     SubscriptionRepository subscriptionRepository;
+
+    @Autowired
+    private AdminSubscriptionPaymentService adminSubscriptionPaymentService;
 
 
     @Autowired
@@ -41,6 +46,30 @@ public class SubscriptionController {
         // Lấy Object Authentication
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         return subscriptionService.sendRequestSubscription(req, auth);
+    }
+
+    @PostMapping("/subscriptions/resubmit")
+    @PreAuthorize("hasRole('OWNER')")
+    public ResponseEntity<Map<String, Object>> resubmitSubscription(
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(
+                subscriptionService.resubmitRejectedSubscription(
+                        authentication.getName()
+                )
+        );
+    }
+
+    @PostMapping("/subscriptions/retry-payment")
+    @PreAuthorize("hasRole('OWNER')")
+    public ResponseEntity<Map<String, Object>> retryInitialSubscriptionPayment(
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(
+                adminSubscriptionPaymentService.retryInitialSubscriptionPayment(
+                        authentication.getName()
+                )
+        );
     }
 
     @GetMapping("/subscriptions/pending")

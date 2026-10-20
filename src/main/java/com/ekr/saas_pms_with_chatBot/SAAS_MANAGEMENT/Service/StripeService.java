@@ -21,6 +21,18 @@ public class StripeService {
         this.stripeProperties = stripeProperties;
     }
 
+    public Session retrieveCheckoutSession(String sessionId)
+            throws StripeException {
+        if (!StringUtils.hasText(stripeProperties.getSecretKey())) {
+            throw new IllegalStateException(
+                    "Stripe secret key chưa được cấu hình"
+            );
+        }
+
+        Stripe.apiKey = stripeProperties.getSecretKey();
+        return Session.retrieve(sessionId);
+    }
+
     public Session createCheckoutSession(
             Long paymentId,
             String orderId,

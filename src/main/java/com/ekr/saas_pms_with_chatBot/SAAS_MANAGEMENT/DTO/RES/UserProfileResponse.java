@@ -27,4 +27,6 @@ public class UserProfileResponse {
     private Subscription.SubscriptionStatus subscriptionStatus;
 
     private boolean showResubmitButton;
+
+    private boolean showRetryPaymentButton;
 }

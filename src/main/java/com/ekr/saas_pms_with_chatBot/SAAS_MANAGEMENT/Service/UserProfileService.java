@@ -62,8 +62,13 @@ public class UserProfileService {
                 == Subscription.SubscriptionStatus.ACTIVE;
 
         // 5. Xác định có hiển thị nút gửi lại yêu cầu không
-        boolean showResubmitButton =
-                subscription != null && !isActive;
+        boolean showResubmitButton = subscription != null
+                && subscription.getStatus()
+                == Subscription.SubscriptionStatus.REJECTED;
+
+        boolean showRetryPaymentButton = subscription != null
+                && subscription.getStatus()
+                == Subscription.SubscriptionStatus.PENDING_PAYMENT;
 
         // 6. Tạo DTO Response
         return new UserProfileResponse(
@@ -80,7 +85,8 @@ public class UserProfileService {
                         ? null
                         : subscription.getStatus(),
 
-                showResubmitButton
+                showResubmitButton,
+                showRetryPaymentButton
         );
     }
 }
