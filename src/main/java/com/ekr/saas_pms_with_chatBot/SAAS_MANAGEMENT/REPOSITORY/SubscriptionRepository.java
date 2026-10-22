@@ -52,29 +52,41 @@ public interface SubscriptionRepository
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
-    SELECT s
-    FROM Subscription s
-    JOIN FETCH s.tenant t
-    JOIN FETCH t.account a
-    JOIN FETCH s.plan p
-    WHERE s.subscriptionId = :subscriptionId
-""")
+        SELECT s
+        FROM Subscription s
+        JOIN FETCH s.tenant t
+        JOIN FETCH t.account a
+        JOIN FETCH s.plan p
+        WHERE s.subscriptionId = :subscriptionId
+        """)
     Optional<Subscription> findByIdForUpdate(
             @Param("subscriptionId") Long subscriptionId
     );
 
+    // Dùng khi tạo Property để khóa Subscription theo Tenant.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        SELECT s
+        FROM Subscription s
+        JOIN FETCH s.tenant t
+        JOIN FETCH s.plan p
+        WHERE t.tenantId = :tenantId
+        """)
+    Optional<Subscription> findByTenantIdForUpdate(
+            @Param("tenantId") Long tenantId
+    );
 
     @Query("""
-    SELECT s
-    FROM Subscription s
-    JOIN FETCH s.tenant t
-    JOIN FETCH t.account a
-    JOIN FETCH s.plan p
-    WHERE s.status = :status
-      AND s.endDate IS NOT NULL
-      AND s.endDate < :today
-    ORDER BY s.endDate ASC
-    """)
+        SELECT s
+        FROM Subscription s
+        JOIN FETCH s.tenant t
+        JOIN FETCH t.account a
+        JOIN FETCH s.plan p
+        WHERE s.status = :status
+          AND s.endDate IS NOT NULL
+          AND s.endDate < :today
+        ORDER BY s.endDate ASC
+        """)
     List<Subscription> findExpiredCandidates(
             @Param("status")
             Subscription.SubscriptionStatus status,
