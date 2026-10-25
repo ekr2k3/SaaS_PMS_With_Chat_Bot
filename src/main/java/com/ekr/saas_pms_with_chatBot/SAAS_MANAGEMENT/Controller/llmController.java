@@ -1,5 +1,13 @@
 package com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Controller;
 
+import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.entity.Property;
+import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.repository.PropertyRepository;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.Account;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.Tenant;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.RAG.PolicyKnowledgeBaseService;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY.AccountRepository;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY.TenantRepository;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Tool.SupportTicketTool;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.prompt.SystemPromptTemplate;
@@ -7,17 +15,14 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.server.ResponseStatusException;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.Account;
-import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY.AccountRepository;
-import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Tool.SupportTicketTool;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -26,26 +31,35 @@ import java.util.stream.Collectors;
 @RestController
 public class llmController {
 
-    @Autowired
-    ChatClient chatClient;
+    private final ChatClient chatClient;
+    private final VectorStore vectorStore;
+    private final AccountRepository accountRepository;
+    private final TenantRepository tenantRepository;
+    private final PropertyRepository propertyRepository;
+    private final SupportTicketTool supportTicketTool;
+    private final PolicyKnowledgeBaseService policyKnowledgeBaseService;
 
-    @Autowired
-    VectorStore vectorStore;
+    public llmController(
+            ChatClient chatClient,
+            VectorStore vectorStore,
+            AccountRepository accountRepository,
+            TenantRepository tenantRepository,
+            PropertyRepository propertyRepository,
+            SupportTicketTool supportTicketTool,
+            PolicyKnowledgeBaseService policyKnowledgeBaseService) {
+        this.chatClient = chatClient;
+        this.vectorStore = vectorStore;
+        this.accountRepository = accountRepository;
+        this.tenantRepository = tenantRepository;
+        this.propertyRepository = propertyRepository;
+        this.supportTicketTool = supportTicketTool;
+        this.policyKnowledgeBaseService = policyKnowledgeBaseService;
+    }
 
-    @Autowired
-    AccountRepository accountRepository;
-
-    @Autowired
-    SupportTicketTool supportTicketTool;
-
-    String systemPrompt = """
-            You are a helpful assistant,
-            answering questions based on the given context
-            in the DOCUMENTS section and no prior knowledge.
-            Answer using the DOCUMENTS section only.
-            If the documents do not contain enough information to answer the user's question,
-            call the createSupportTicket tool with the user's original question.
-            Do not invent an answer when the documents are insufficient.
+    private final String systemPrompt = """
+            You are a helpful assistant, answering questions based only on the DOCUMENTS section.
+            Use only the provided documents. If they do not contain enough information, call
+            createSupportTicket with the user's original question. Do not invent an answer.
 
             DOCUMENTS:
             ----------------
@@ -53,67 +67,73 @@ public class llmController {
             ----------------
             """;
 
+    /** Chat hỏi đáp tài liệu cấp SaaS; không được truy xuất tài liệu Property. */
     @GetMapping("/api/v1/chat/saas")
-    public String RandomData(@RequestParam String question) {
+    public String chatSaas(@RequestParam String question) {
+        Account account = requireCurrentAccount();
+        return answer(question,
+                policyKnowledgeBaseService.saasSearch(question, 5),
+                Map.of("accountId", account.getAccountId()));
+    }
 
-        // 1. Lấy email từ principal sau khi JWT đã được xác thực.
-        Authentication authentication =
-                SecurityContextHolder.getContext().getAuthentication();
-
-        if (authentication == null
-                || !authentication.isAuthenticated()
-                || authentication.getPrincipal() == null) {
-            throw new ResponseStatusException(
-                    HttpStatus.UNAUTHORIZED,
-                    "Chưa xác thực người dùng"
-            );
+    /** Chat hỏi đáp Policy của một Property thuộc Tenant của Owner đang đăng nhập. */
+    @PreAuthorize("hasRole('OWNER')")
+    @GetMapping("/api/properties/{propertyId}/chat")
+    public String chatProperty(
+            @PathVariable Long propertyId,
+            @RequestParam String question) {
+        Account account = requireCurrentAccount();
+        if (account.getStatus() != Account.AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Tài khoản Owner không hoạt động");
         }
 
-        // 2. Từ email, truy vấn Account để lấy accountId.
-        String email = authentication.getName();
-        Account account = accountRepository.findByEmail(email);
+        Tenant tenant = tenantRepository.findByAccount(account)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Owner chưa có Tenant"));
+        Property property = propertyRepository
+                .findByPropertyIdAndTenant_TenantId(propertyId, tenant.getTenantId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Không tìm thấy Property"));
 
+        SearchRequest request = policyKnowledgeBaseService
+                .propertySearch(question, property.getPropertyId(), account.getAccountId(), 5);
+        return answer(question, request, Map.of("accountId", account.getAccountId(),
+                "propertyId", property.getPropertyId()));
+    }
+
+    private Account requireCurrentAccount() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication.getPrincipal() == null
+                || "anonymousUser".equals(authentication.getPrincipal())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                    "Chưa xác thực người dùng");
+        }
+        Account account = accountRepository.findByEmail(authentication.getName());
         if (account == null) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Người dùng hiện tại không thuộc Account Owner"
-            );
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Người dùng hiện tại không thuộc Account Owner");
         }
+        return account;
+    }
 
-        Long accountId = account.getAccountId();
-
-        // 3. Tìm kiếm tài liệu liên quan trong VectorStore.
-        SearchRequest searchRequest = SearchRequest.builder()
-                .query(question)
-                .topK(5)
-                .similarityThreshold(0.5)
-                .build();
-
-        List<Document> relevantDocuments =
-                vectorStore.similaritySearch(searchRequest);
-
-        // 4. Ghép nội dung tài liệu thành context cho RAG.
+    private String answer(String question, SearchRequest searchRequest,
+                          Map<String, Object> toolContext) {
+        List<Document> relevantDocuments = vectorStore.similaritySearch(searchRequest);
         String documentsContext = relevantDocuments.stream()
                 .map(Document::getText)
-                .collect(Collectors.joining("\n"));
+                .collect(Collectors.joining("\n\n"));
 
-        // 5. Đưa context vào System Prompt.
-        SystemPromptTemplate systemPromptTemplate =
-                new SystemPromptTemplate(systemPrompt);
+        Message systemMessage = new SystemPromptTemplate(systemPrompt)
+                .createMessage(Map.of("documents", documentsContext));
 
-        Message systemMessage = systemPromptTemplate.createMessage(
-                Map.of("documents", documentsContext)
-        );
-
-        // 6. Gọi ChatClient và truyền accountId qua ToolContext.
-        String response = chatClient.prompt()
+        return chatClient.prompt()
                 .messages(systemMessage)
                 .user(question)
                 .tools(supportTicketTool)
-                .toolContext(Map.of("accountId", accountId))
+                .toolContext(toolContext)
                 .call()
                 .content();
-
-        return response;
     }
 }

@@ -1,6 +1,6 @@
-
 package com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY;
 
+import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.entity.Property;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -37,4 +37,20 @@ public class FileMetadata {
             foreignKey = @ForeignKey(name = "fk_file_metadata_account")
     )
     private Account account;
+
+    /**
+     * Property sở hữu tài liệu.
+     *
+     * Quy ước phạm vi dữ liệu:
+     * - account == null và property == null: tài liệu cấp SaaS Admin.
+     * - account != null và property != null: tài liệu thuộc Property của Account.
+     * - Không sử dụng property != null cùng account == null cho dữ liệu mới.
+     */
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(
+            name = "property_id",
+            nullable = true,
+            foreignKey = @ForeignKey(name = "fk_file_metadata_property")
+    )
+    private Property property;
 }

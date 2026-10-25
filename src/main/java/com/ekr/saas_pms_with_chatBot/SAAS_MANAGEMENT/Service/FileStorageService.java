@@ -165,17 +165,16 @@ public class FileStorageService {
         fileMetadataRepository.delete(metadata);
     }
 
-
     /**
      * Đọc toàn bộ nội dung PDF thuộc SaaS.
-     * Quy ước: account_id IS NULL nghĩa là PDF thuộc SaaS.
+     * Quy ước: tài liệu SaaS không gắn Account hoặc Property.
      *
      * @return Một String chứa nội dung của tất cả PDF.
      */
     public String readAllSaasPdfContents() {
 
         List<FileMetadata> files =
-                fileMetadataRepository.findByAccountIsNull();
+                fileMetadataRepository.findByAccountIsNullAndPropertyIsNull();
 
         StringBuilder allContent = new StringBuilder();
 
