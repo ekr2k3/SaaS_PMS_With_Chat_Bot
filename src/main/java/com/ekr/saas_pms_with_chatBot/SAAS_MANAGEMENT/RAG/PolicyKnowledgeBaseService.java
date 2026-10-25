@@ -92,13 +92,13 @@ public class PolicyKnowledgeBaseService {
 
     public SearchRequest saasSearch(String question, int topK) {
         return SearchRequest.builder().query(question).topK(topK)
-                .similarityThreshold(0.5)
+                .similarityThreshold(0.3)
                 .filterExpression("scope == 'SAAS'").build();
     }
 
     public SearchRequest propertySearch(String question, Long propertyId, Long accountId, int topK) {
         return SearchRequest.builder().query(question).topK(topK)
-                .similarityThreshold(0.5)
+                .similarityThreshold(0.3)
                 .filterExpression("scope == 'PROPERTY' && propertyId == '" + propertyId
                         + "' && accountId == '" + accountId + "'")
                 .build();

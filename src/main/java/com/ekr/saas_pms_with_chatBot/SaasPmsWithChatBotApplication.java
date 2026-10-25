@@ -10,9 +10,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableConfigurationProperties(StripeProperties.class)
 @EnableScheduling
 public class SaasPmsWithChatBotApplication {
-
 	public static void main(String[] args) {
 		SpringApplication.run(SaasPmsWithChatBotApplication.class, args);
 	}
-
 }

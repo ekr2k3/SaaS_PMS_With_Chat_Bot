@@ -121,6 +121,19 @@ public class llmController {
     private String answer(String question, SearchRequest searchRequest,
                           Map<String, Object> toolContext) {
         List<Document> relevantDocuments = vectorStore.similaritySearch(searchRequest);
+        
+        // Print các vector tìm được để debug
+        System.out.println("=== RAG Search Results ===");
+        System.out.println("Question: " + question);
+        System.out.println("Found " + relevantDocuments.size() + " documents");
+        for (int i = 0; i < relevantDocuments.size(); i++) {
+            Document doc = relevantDocuments.get(i);
+            System.out.println("\n--- Document " + (i + 1) + " ---");
+            System.out.println("Content: " + doc.getText().substring(0, Math.min(200, doc.getText().length())));
+            System.out.println("Metadata: " + doc.getMetadata());
+        }
+        System.out.println("========================");
+        
         String documentsContext = relevantDocuments.stream()
                 .map(Document::getText)
                 .collect(Collectors.joining("\n\n"));
