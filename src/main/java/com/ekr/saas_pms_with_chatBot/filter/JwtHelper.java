@@ -1,3 +1,4 @@
+
 package com.ekr.saas_pms_with_chatBot.filter;
 
 import io.jsonwebtoken.Claims;
@@ -18,7 +19,7 @@ public class JwtHelper {
     @Value("${jwt.secret:saasPmsJwtSecretKey2026ProductionSecureKey_9fK3mX7qL2vN8cR5}")
     private String secret;
 
-    @Value("${jwt.expiration:86400000}") // Dùng jwt.expiration or nếu không có thì dùng giá trị mặc định 86400000
+    @Value("${jwt.expiration:86400000}")
     private Long expiration;
 
     private Key getSigningKey() {
@@ -27,12 +28,47 @@ public class JwtHelper {
 
     public String generateToken(String email) {
         Map<String, Object> claims = new HashMap<>();
+
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(email)
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expiration))
-                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .setExpiration(
+                        new Date(System.currentTimeMillis() + expiration)
+                )
+                .signWith(
+                        getSigningKey(),
+                        SignatureAlgorithm.HS256
+                )
+                .compact();
+    }
+
+    public String generatePmsEmployeeToken(
+            String email,
+            Long userId,
+            Long propertyId,
+            Long tenantId,
+            String role
+    ) {
+        Map<String, Object> claims = new HashMap<>();
+
+        claims.put("actor_type", "PMS_EMPLOYEE");
+        claims.put("user_id", userId);
+        claims.put("property_id", propertyId);
+        claims.put("tenant_id", tenantId);
+        claims.put("role", role);
+
+        return Jwts.builder()
+                .setClaims(claims)
+                .setSubject(email)
+                .setIssuedAt(new Date())
+                .setExpiration(
+                        new Date(System.currentTimeMillis() + expiration)
+                )
+                .signWith(
+                        getSigningKey(),
+                        SignatureAlgorithm.HS256
+                )
                 .compact();
     }
 
@@ -58,6 +94,8 @@ public class JwtHelper {
     }
 
     private boolean isTokenExpired(String token) {
-        return extractClaims(token).getExpiration().before(new Date());
+        return extractClaims(token)
+                .getExpiration()
+                .before(new Date());
     }
 }

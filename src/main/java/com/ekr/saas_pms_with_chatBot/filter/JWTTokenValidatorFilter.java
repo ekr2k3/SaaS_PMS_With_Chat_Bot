@@ -1,150 +1,371 @@
+
 package com.ekr.saas_pms_with_chatBot.filter;
 
+import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.entity.Permission;
+import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.entity.RolePermission;
+import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.entity.User;
+import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.repository.RolePermissionRepository;
+import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.repository.UserRepository;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.Account;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.Subscription;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.SubscriptionPlan;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.Tenant;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY.AccountRepository;
-import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Service.AccountService;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY.SubscriptionRepository;
+
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import javax.crypto.SecretKey;
 import java.io.IOException;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 @Component
 public class JWTTokenValidatorFilter extends OncePerRequestFilter {
 
     @Value("${jwt.secret:saasPmsJwtSecretKey2026ProductionSecureKey_9fK3mX7qL2vN8cR5}")
-    private String secret; // Để dùng @Value thì class này phải là Bean --> Phải dùng @Component
+    private String secret;
 
     @Value("${acc.user}")
-    String admin_u;
+    private String admin_u;
 
     @Autowired
-    AccountRepository accountRepository;
+    private AccountRepository accountRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private RolePermissionRepository rolePermissionRepository;
+
+    @Autowired
+    private SubscriptionRepository subscriptionRepository;
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
-        // Lấy JWT Token Font-end gửi lên từ Header của http req
-        String token = request.getHeader("Authorization");
-        if (token == null || !token.startsWith("Bearer ")) {
+    protected void doFilterInternal(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain
+    ) throws ServletException, IOException {
+
+        String authorization = request.getHeader("Authorization");
+
+        if (authorization == null
+                || !authorization.startsWith("Bearer ")) {
+
             filterChain.doFilter(request, response);
             return;
         }
 
-        // Xóa Prefix Bearer trong Chuỗi chỉ lấy token
-        token = token.substring(7);
+        String token = authorization.substring(7);
 
-        // Kiểm tra token
         try {
-            // Tạo chữ ký số
-            byte[] secret_b = secret.getBytes();
-            SecretKey key = Keys.hmacShaKeyFor(secret_b);
-            //Xác thực token
+            SecretKey key = Keys.hmacShaKeyFor(
+                    secret.getBytes()
+            );
+
             Claims claims = Jwts.parser()
                     .verifyWith(key)
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
 
-            // Xác định ROLE
-            String Role= "ROLE_ANYMOS";
-            // Nếu email giống AMIN --> ADMIN
-            // Nếu tìm được trong bảng Account --> Owner (Hard code
-            // Nếu tìm được trong bảng User --> Các nhân viên khác theo bảng ROLE
+            String subject = claims.getSubject();
+            String actorType = claims.get("actor_type", String.class);
 
-            if(admin_u.equals(claims.getSubject())){
-                Role = "ROLE_ADMIN";
-            }else{
-                // Tìm trong bảng Account
-                // claims.getSubject() là email
-                Account account = accountRepository.findByEmail(claims.getSubject());
-                if(account != null){
-                    Role = "ROLE_OWNER";
-                }else{
-                    // Tìm trong bảng User (nhân viên để xác định) Role
-                    // Làm sau
-                }
+            if ("PMS_EMPLOYEE".equals(actorType)) {
+
+                authenticatePmsEmployee(claims, subject);
+
+            } else {
+
+                authenticateSaasUser(subject);
             }
 
-            // LOG ĐỂ KIỂM TRA
-            System.out.println("ROLE: " + Role);
+        } catch (EmployeeAccessDeniedException e) {
 
+            SecurityContextHolder.clearContext();
 
-
-            // Tạo Authentication đã xác thực
-            UserDetails u = new User(
-                    claims.getSubject(),
-                    null,
-                    List.of(
-                            new SimpleGrantedAuthority(Role)
-                    ) // Tạm Hard Code
+            response.sendError(
+                    HttpServletResponse.SC_FORBIDDEN,
+                    e.getMessage()
             );
+            return;
 
-
-            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    u,
-                    null,
-                    u.getAuthorities()
-            );
-            // Set authentication vào Security Context
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-
-
-            System.out.println("JWT Token is valid: Bạn đã xác thực thành công !!!!");
         } catch (Exception e) {
-            // TODO: handle exception
-            throw new RuntimeException("401: Auth" + "\n" + e.getMessage());
+
+            SecurityContextHolder.clearContext();
+
+            response.sendError(
+                    HttpServletResponse.SC_UNAUTHORIZED,
+                    "Invalid or expired access token"
+            );
+            return;
         }
 
-        // Tiếp tục filter kế tiếp
         filterChain.doFilter(request, response);
     }
 
-    // Các API không cần kiểm tra JWT
+    /**
+     * Xác thực SaaS Admin và SaaS Owner.
+     * Giữ nguyên cách nhận diện hiện tại của hệ thống.
+     */
+    private void authenticateSaasUser(String email) {
+
+        String role;
+
+        if (Objects.equals(admin_u, email)) {
+
+            role = "ROLE_ADMIN";
+
+        } else {
+
+            Account account = accountRepository.findByEmail(email);
+
+            if (account == null) {
+                throw new IllegalArgumentException(
+                        "Account does not exist"
+                );
+            }
+
+            role = "ROLE_OWNER";
+        }
+
+        UserDetails userDetails =
+                org.springframework.security.core.userdetails.User
+                        .withUsername(email)
+                        .password("")
+                        .authorities(role)
+                        .build();
+
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(
+                        userDetails,
+                        null,
+                        userDetails.getAuthorities()
+                );
+
+        SecurityContextHolder.getContext()
+                .setAuthentication(authentication);
+    }
+
+    /**
+     * Xác thực nhân viên PMS.
+     *
+     * Không sử dụng Role/Property/Tenant lấy trực tiếp từ JWT
+     * làm dữ liệu phân quyền. Các thông tin này được đọc lại từ DB.
+     */
+    private void authenticatePmsEmployee(
+            Claims claims,
+            String email
+    ) {
+
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "PMS Employee does not exist"
+                ));
+
+        // 1. Kiểm tra User.
+        if (user.getStatus() != User.UserStatus.ACTIVE) {
+            throw new EmployeeAccessDeniedException(
+                    "PMS Employee account is inactive"
+            );
+        }
+
+        // 2. Kiểm tra Role.
+        if (user.getRole() == null
+                || user.getRole().getStatus()
+                != com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.entity.Role.RoleStatus.ACTIVE) {
+
+            throw new EmployeeAccessDeniedException(
+                    "PMS Employee role is inactive"
+            );
+        }
+
+        String roleName = user.getRole().getName();
+
+        if ("OWNER".equalsIgnoreCase(roleName)) {
+            throw new EmployeeAccessDeniedException(
+                    "Owner must use SaaS authentication"
+            );
+        }
+
+        // 3. Kiểm tra Property và Tenant.
+        if (user.getProperty() == null
+                || user.getProperty().getTenant() == null) {
+
+            throw new EmployeeAccessDeniedException(
+                    "PMS Employee has no valid Property"
+            );
+        }
+
+        Long propertyId = user.getProperty().getPropertyId();
+
+        Tenant tenant = user.getProperty().getTenant();
+
+        Long tenantId = tenant.getTenantId();
+
+        if (tenant.getStatus() != Tenant.TenantStatus.ACTIVE) {
+            throw new EmployeeAccessDeniedException(
+                    "Tenant is inactive"
+            );
+        }
+
+        // 4. Đối chiếu các ID trong JWT với dữ liệu hiện tại.
+        if (!sameId(claims.get("user_id"), user.getUserId())
+                || !sameId(claims.get("property_id"), propertyId)
+                || !sameId(claims.get("tenant_id"), tenantId)) {
+
+            throw new IllegalArgumentException(
+                    "Token context no longer matches current account data"
+            );
+        }
+
+        // 5. Kiểm tra Subscription.
+        Subscription subscription =
+                subscriptionRepository.findByTenant(tenant)
+                        .orElseThrow(() ->
+                                new EmployeeAccessDeniedException(
+                                        "Tenant has no Subscription"
+                                )
+                        );
+
+        LocalDate today = LocalDate.now();
+
+        if (subscription.getStatus()
+                != Subscription.SubscriptionStatus.ACTIVE
+                || subscription.getStartDate() == null
+                || subscription.getEndDate() == null
+                || subscription.getStartDate().isAfter(today)
+                || subscription.getEndDate().isBefore(today)) {
+
+            throw new EmployeeAccessDeniedException(
+                    "Subscription is not active"
+            );
+        }
+
+        // 6. Kiểm tra Plan.
+        SubscriptionPlan plan = subscription.getPlan();
+
+        if (plan == null
+                || plan.getStatus()
+                != SubscriptionPlan.PlanStatus.ACTIVE) {
+
+            throw new EmployeeAccessDeniedException(
+                    "Subscription Plan is inactive"
+            );
+        }
+
+        // 7. Nạp Permission mới nhất từ DB.
+        List<SimpleGrantedAuthority> authorities =
+                new ArrayList<>();
+
+        authorities.add(
+                new SimpleGrantedAuthority(
+                        "ROLE_" + roleName.toUpperCase()
+                )
+        );
+
+        List<RolePermission> rolePermissions =
+                rolePermissionRepository
+                        .findAllByRole_RoleIdAndPermission_Status(
+                                user.getRole().getRoleId(),
+                                Permission.PermissionStatus.ACTIVE
+                        );
+
+        for (RolePermission rolePermission : rolePermissions) {
+
+            String permissionCode =
+                    rolePermission.getPermission().getCode();
+
+            authorities.add(
+                    new SimpleGrantedAuthority(
+                            "PERM_" + permissionCode
+                    )
+            );
+        }
+
+        // 8. Tạo Principal chứa thông tin PMS Employee.
+        PmsEmployeePrincipal principal =
+                new PmsEmployeePrincipal(
+                        user.getUserId(),
+                        user.getEmail(),
+                        propertyId,
+                        tenantId,
+                        roleName,
+                        authorities
+                );
+
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(
+                        principal,
+                        null,
+                        principal.getAuthorities()
+                );
+
+        SecurityContextHolder.getContext()
+                .setAuthentication(authentication);
+    }
+
+    private boolean sameId(Object claimValue, Long databaseValue) {
+
+        if (!(claimValue instanceof Number number)
+                || databaseValue == null) {
+            return false;
+        }
+
+        return number.longValue() == databaseValue;
+    }
+
+    /**
+     * Không cần JWT tại endpoint đăng nhập.
+     */
     @Override
-    protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getServletPath(); // lấy path
+    protected boolean shouldNotFilter(
+            HttpServletRequest request
+    ) {
 
-        //Public
-        // "/api/v1/auth/**", "/api/v1/contacts/**"
-        if(path.equals("/api/v1/saas/user/login")) return true;
-        if(path.equals("/api/v1/saas/user/register")) return true;
+        String path = request.getServletPath();
 
+        if (path.equals("/api/v1/saas/user/login")) return true;
+        if (path.equals("/api/v1/pms/auth/login")) return true;
+        if (path.equals("/api/v1/saas/user/register")) return true;
 
-        if(path.equals("/api/v1/saas/user/Plan/List")) return true;
-        if(path.equals("/api/v1/saas/user/Plan/Detail")) return true;
-//        if(path.startsWith("/api/v1/auth/")) return true;
-//        if(path.startsWith("/api/v1/contacts/")) return true;
+        if (path.equals("/api/v1/saas/user/Plan/List")) return true;
+        if (path.equals("/api/v1/saas/user/Plan/Detail")) return true;
 
+        if (path.equals("/api/webhooks/stripe")) return true;
+        if (path.equals("/api/payments/stripe/success")) return true;
+        if (path.equals("/api/payments/stripe/cancel")) return true;
 
-        if (path.equals("/api/webhooks/stripe")) {
-            return true;
-        }
-
-        if (path.equals("/api/payments/stripe/success")) {
-            return true;
-        }
-
-        if (path.equals("/api/payments/stripe/cancel")) {
-            return true;
-        }
-
-        if(path.equals("/test_llm")) return true;
+        if (path.equals("/test_llm")) return true;
 
         return false;
+    }
+
+    private static class EmployeeAccessDeniedException
+            extends RuntimeException {
+
+        private EmployeeAccessDeniedException(String message) {
+            super(message);
+        }
     }
 }

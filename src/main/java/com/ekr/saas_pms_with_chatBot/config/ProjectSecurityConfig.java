@@ -1,3 +1,4 @@
+
 package com.ekr.saas_pms_with_chatBot.config;
 
 import com.ekr.saas_pms_with_chatBot.filter.JWTTokenValidatorFilter;
@@ -18,7 +19,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.List;
 
 @Configuration
-@EnableMethodSecurity // Cần có dòng này thì @PreAuthorize mới hoạt động
+@EnableMethodSecurity
 public class ProjectSecurityConfig {
 
     @Autowired
@@ -28,7 +29,6 @@ public class ProjectSecurityConfig {
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
-
 
     @Bean
     SecurityFilterChain defaultSecurityFilterChain(
@@ -40,6 +40,7 @@ public class ProjectSecurityConfig {
                 .requestMatchers(
                         "/api/v1/saas/user/register",
                         "/api/v1/saas/user/login",
+                        "/api/v1/pms/auth/login",
                         "/api/v1/saas/user/Plan/List",
                         "/api/v1/saas/user/Plan/Detail",
                         "/api/webhooks/stripe",
@@ -77,16 +78,24 @@ public class ProjectSecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
 
-        CorsConfiguration configuration = new CorsConfiguration();
+        CorsConfiguration configuration =
+                new CorsConfiguration();
 
-        configuration.setAllowedOrigins(List.of("http://localhost:5173"));
+        configuration.setAllowedOrigins(
+                List.of("http://localhost:5173")
+        );
+
         configuration.setAllowedMethods(List.of("*"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        UrlBasedCorsConfigurationSource source =
+                new UrlBasedCorsConfigurationSource();
 
-        source.registerCorsConfiguration("/**", configuration);
+        source.registerCorsConfiguration(
+                "/**",
+                configuration
+        );
 
         return source;
     }

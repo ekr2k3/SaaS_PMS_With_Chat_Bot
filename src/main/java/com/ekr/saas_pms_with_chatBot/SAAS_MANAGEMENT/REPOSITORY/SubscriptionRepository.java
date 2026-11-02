@@ -1,8 +1,10 @@
+
 package com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.REPOSITORY;
 
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.Subscription;
 import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.ENTITY.Tenant;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -17,6 +19,7 @@ public interface SubscriptionRepository
 
     boolean existsByTenant(Tenant tenant);
 
+    @EntityGraph(attributePaths = "plan")
     Optional<Subscription> findByTenant(Tenant tenant);
 
     List<Subscription> findByStatus(
@@ -63,7 +66,6 @@ public interface SubscriptionRepository
             @Param("subscriptionId") Long subscriptionId
     );
 
-    // Dùng khi tạo Property để khóa Subscription theo Tenant.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
         SELECT s
