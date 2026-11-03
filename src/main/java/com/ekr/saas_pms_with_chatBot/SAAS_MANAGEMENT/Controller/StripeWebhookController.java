@@ -1,6 +1,6 @@
 package com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Controller;
 
-import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Service.StripeWebhookService;
+import com.ekr.saas_pms_with_chatBot.SAAS_MANAGEMENT.Service.StripeWebhookRouterService;
 
 import com.stripe.exception.SignatureVerificationException;
 
@@ -12,12 +12,12 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/webhooks/stripe")
 public class StripeWebhookController {
 
-    private final StripeWebhookService stripeWebhookService;
+    private final StripeWebhookRouterService stripeWebhookRouterService;
 
     public StripeWebhookController(
-            StripeWebhookService stripeWebhookService
+            StripeWebhookRouterService stripeWebhookRouterService
     ) {
-        this.stripeWebhookService = stripeWebhookService;
+        this.stripeWebhookRouterService = stripeWebhookRouterService;
     }
 
     @PostMapping
@@ -36,33 +36,27 @@ public class StripeWebhookController {
         }
 
         try {
-            stripeWebhookService.handleWebhook(payload, signature);
+            stripeWebhookRouterService.handleWebhook(
+                    payload,
+                    signature
+            );
 
             return ResponseEntity.ok("Webhook received");
 
         } catch (SignatureVerificationException exception) {
 
-            // Chữ ký không hợp lệ: không xử lý nghiệp vụ.
             return ResponseEntity
                     .status(HttpStatus.BAD_REQUEST)
                     .body("Invalid Stripe signature");
 
         } catch (IllegalArgumentException exception) {
 
-            /*
-             * Dữ liệu không hợp lệ hoặc không khớp với Payment.
-             * Không xác nhận thanh toán.
-             */
             return ResponseEntity
                     .status(HttpStatus.BAD_REQUEST)
                     .body("Invalid webhook data");
 
         } catch (Exception exception) {
 
-            /*
-             * Lỗi hệ thống hoặc database:
-             * trả lỗi 5xx để Stripe có thể retry.
-             */
             return ResponseEntity
                     .status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Webhook processing failed");

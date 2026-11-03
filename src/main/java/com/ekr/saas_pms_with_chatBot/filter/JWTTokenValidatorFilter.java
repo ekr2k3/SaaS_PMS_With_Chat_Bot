@@ -356,6 +356,8 @@ public class JWTTokenValidatorFilter extends OncePerRequestFilter {
         if (path.equals("/api/payments/stripe/success")) return true;
         if (path.equals("/api/payments/stripe/cancel")) return true;
 
+        if (path.startsWith("/api/public/")) return true;
+
         if (path.equals("/test_llm")) return true;
 
         return false;

@@ -1,7 +1,7 @@
-
 package com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.repository;
 
 import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.entity.RoomType;
+import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.enums.RoomTypeName;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -19,6 +19,11 @@ public interface RoomTypeRepository
     Optional<RoomType> findByRoomTypeIdAndProperty_PropertyId(
             Long roomTypeId,
             Long propertyId
+    );
+
+    Optional<RoomType> findByProperty_PropertyIdAndName(
+            Long propertyId,
+            RoomTypeName name
     );
 
     @Query("""

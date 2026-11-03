@@ -8,6 +8,7 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -365,6 +366,109 @@ public class MailService {
         );
 
         message.setText(content);
+        mailSender.send(message);
+    }
+
+    public void sendReservationConfirmationEmail(
+            String guestEmail,
+            String guestName,
+            String reservationCode,
+            String propertyName,
+            String propertyAddress,
+            String propertyPhone,
+            String checkInDate,
+            String checkOutDate,
+            Integer guestCount,
+            String totalAmount,
+            String depositAmount,
+            String currency,
+            List<String> roomDetails
+    ) {
+
+        if (guestEmail == null || guestEmail.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Guest email không hợp lệ"
+            );
+        }
+
+        String safeGuestName =
+                guestName == null || guestName.isBlank()
+                        ? "Quý khách"
+                        : guestName;
+
+        String safePropertyPhone =
+                propertyPhone == null || propertyPhone.isBlank()
+                        ? "Chưa cập nhật"
+                        : propertyPhone;
+
+        String rooms = String.join("\n", roomDetails);
+
+        String content = """
+            Xin chào %s,
+
+            Cảm ơn quý khách đã lựa chọn khách sạn %s.
+
+            Đặt phòng của quý khách đã được xác nhận thành công.
+
+            ==================================
+            THÔNG TIN ĐẶT PHÒNG
+            ==================================
+
+            Mã Reservation: %s
+
+            Khách sạn: %s
+            Địa chỉ: %s
+            Điện thoại: %s
+
+            Ngày nhận phòng: %s
+            Ngày trả phòng: %s
+
+            Số lượng khách: %d
+
+            Danh sách phòng:
+            %s
+
+            ==================================
+            THÔNG TIN THANH TOÁN
+            ==================================
+
+            Tổng tiền đặt phòng: %s %s
+            Tiền đặt cọc: %s %s
+
+            Vui lòng lưu lại mã Reservation để
+            thuận tiện cho việc tra cứu và nhận phòng.
+
+            Nếu cần hỗ trợ, vui lòng liên hệ trực tiếp
+            với khách sạn theo thông tin phía trên.
+
+            Trân trọng,
+            %s
+            """.formatted(
+                safeGuestName,
+                propertyName,
+                reservationCode,
+                propertyName,
+                propertyAddress,
+                safePropertyPhone,
+                checkInDate,
+                checkOutDate,
+                guestCount,
+                rooms,
+                totalAmount,
+                currency,
+                depositAmount,
+                currency,
+                propertyName
+        );
+
+        SimpleMailMessage message = new SimpleMailMessage();
+
+        message.setTo(guestEmail);
+        message.setSubject(
+                "[Reservation Confirmed] " + reservationCode
+        );
+        message.setText(content);
+
         mailSender.send(message);
     }
 }

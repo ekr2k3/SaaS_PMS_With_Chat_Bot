@@ -46,6 +46,7 @@ public class ProjectSecurityConfig {
                         "/api/webhooks/stripe",
                         "/api/payments/stripe/success",
                         "/api/payments/stripe/cancel",
+                        "/api/public/**",
                         "/test_llm",
                         "/error"
                 ).permitAll()

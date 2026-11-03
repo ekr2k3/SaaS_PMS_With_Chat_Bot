@@ -1,11 +1,18 @@
 package com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.repository;
 
 import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.entity.Room;
-
+import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.enums.ReservationStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public interface RoomRepository extends JpaRepository<Room, Long> {
 
@@ -31,4 +38,93 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
      * Đếm số Room thuộc một Room Type.
      */
     long countByRoomType_RoomTypeId(Long roomTypeId);
+
+    /**
+     * Tìm các Room còn khả dụng trong khoảng ngày yêu cầu.
+     *
+     * Một Room không khả dụng nếu tồn tại Reservation:
+     *
+     * 1. CONFIRMED hoặc CHECKED_IN có khoảng ngày lưu trú giao nhau.
+     * 2. PENDING_PAYMENT còn thời hạn giữ phòng.
+     *
+     * Reservation PENDING_PAYMENT có paymentExpiresAt null được xem
+     * là vẫn đang giữ phòng để tránh mở phòng ngoài ý muốn.
+     *
+     * Room Type phải ACTIVE và phải có ít nhất một Room Rate ACTIVE.
+     */
+    @Query("""
+            SELECT room
+            FROM Room room
+            WHERE room.roomType.property.propertyId = :propertyId
+
+              AND room.roomType.status = :activeRoomTypeStatus
+
+              AND room.isAvailable = true
+
+              AND (
+                    :roomTypeId IS NULL
+                    OR room.roomType.roomTypeId = :roomTypeId
+              )
+
+              AND EXISTS (
+                    SELECT rate.roomRateId
+                    FROM RoomRate rate
+                    WHERE rate.roomType.roomTypeId =
+                          room.roomType.roomTypeId
+                      AND rate.status = :activeRateStatus
+              )
+
+              AND NOT EXISTS (
+                    SELECT reservationRoom.reservationId
+                    FROM ReservationRoom reservationRoom
+                    JOIN reservationRoom.reservation reservation
+                    WHERE reservationRoom.room.roomId = room.roomId
+
+                      AND reservation.checkInDate < :checkOutDate
+                      AND reservation.checkOutDate > :checkInDate
+
+                      AND (
+                            reservation.status IN :blockingStatuses
+
+                            OR (
+                                reservation.status = :pendingPaymentStatus
+                                AND (
+                                    reservation.paymentExpiresAt IS NULL
+                                    OR reservation.paymentExpiresAt > :now
+                                )
+                            )
+                      )
+              )
+
+            ORDER BY
+                room.roomType.roomTypeId ASC,
+                room.roomId ASC
+            """)
+    List<Room> findAvailableRooms(
+            @Param("propertyId") Long propertyId,
+            @Param("roomTypeId") Long roomTypeId,
+            @Param("checkInDate") LocalDate checkInDate,
+            @Param("checkOutDate") LocalDate checkOutDate,
+            @Param("now") LocalDateTime now,
+            @Param("activeRoomTypeStatus") String activeRoomTypeStatus,
+            @Param("activeRateStatus") String activeRateStatus,
+            @Param("blockingStatuses") Set<ReservationStatus> blockingStatuses,
+            @Param("pendingPaymentStatus") ReservationStatus pendingPaymentStatus
+    );
+
+    /**
+     * Khóa Room trong transaction khi tạo Reservation.
+     * Đồng thời xác minh Room thuộc đúng Property.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT r
+            FROM Room r
+            WHERE r.roomId = :roomId
+              AND r.roomType.property.propertyId = :propertyId
+            """)
+    Optional<Room> findByRoomIdAndPropertyIdForUpdate(
+            @Param("roomId") Long roomId,
+            @Param("propertyId") Long propertyId
+    );
 }

@@ -1,9 +1,5 @@
 package com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.repository;
 
-
-
-
-
 import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.entity.PolicyFormulaParameter;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -18,6 +14,12 @@ public interface PolicyFormulaParameterRepository
     List<PolicyFormulaParameter>
     findAllByPropertyIdOrderByPolicyFormulaIdAscParamNameAsc(
             Long propertyId
+    );
+
+    List<PolicyFormulaParameter>
+    findAllByPropertyIdAndPolicyFormulaId(
+            Long propertyId,
+            Long policyFormulaId
     );
 
     void deleteAllByPropertyIdAndPolicyFormulaId(
