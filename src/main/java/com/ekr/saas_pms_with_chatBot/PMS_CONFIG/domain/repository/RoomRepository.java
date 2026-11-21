@@ -2,7 +2,9 @@ package com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.repository;
 
 import com.ekr.saas_pms_with_chatBot.PMS_CONFIG.domain.entity.Room;
 import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.enums.ReservationStatus;
+
 import jakarta.persistence.LockModeType;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -19,7 +21,7 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     /**
      * Lấy toàn bộ Room thuộc một Property.
      *
-     * Quan hệ truy vấn:
+     * Quan hệ:
      * Room -> RoomType -> Property
      */
     List<Room> findAllByRoomType_Property_PropertyIdOrderByRoomIdAsc(
@@ -27,7 +29,7 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     );
 
     /**
-     * Tìm Room theo ID và xác minh Room thuộc Property được chỉ định.
+     * Tìm Room theo ID và xác minh Room thuộc Property.
      */
     Optional<Room> findByRoomIdAndRoomType_Property_PropertyId(
             Long roomId,
@@ -42,15 +44,21 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     /**
      * Tìm các Room còn khả dụng trong khoảng ngày yêu cầu.
      *
-     * Một Room không khả dụng nếu tồn tại Reservation:
+     * Điều kiện Room:
+     * 1. Thuộc Property.
+     * 2. Room Type ACTIVE.
+     * 3. Room.isAvailable = true.
+     * 4. Room.status = READY.
+     * 5. Có ít nhất một Room Rate ACTIVE.
+     * 6. Không có Reservation chiếm dụng trong khoảng ngày.
      *
-     * 1. CONFIRMED hoặc CHECKED_IN có khoảng ngày lưu trú giao nhau.
-     * 2. PENDING_PAYMENT còn thời hạn giữ phòng.
+     * Reservation chặn phòng:
+     * - CONFIRMED
+     * - CHECKED_IN
+     * - PENDING_PAYMENT còn thời hạn giữ phòng.
      *
-     * Reservation PENDING_PAYMENT có paymentExpiresAt null được xem
-     * là vẫn đang giữ phòng để tránh mở phòng ngoài ý muốn.
-     *
-     * Room Type phải ACTIVE và phải có ít nhất một Room Rate ACTIVE.
+     * PENDING_PAYMENT có paymentExpiresAt null được xem
+     * là vẫn đang giữ phòng.
      */
     @Query("""
             SELECT room
@@ -60,6 +68,8 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
               AND room.roomType.status = :activeRoomTypeStatus
 
               AND room.isAvailable = true
+
+              AND room.status = 'READY'
 
               AND (
                     :roomTypeId IS NULL
@@ -114,6 +124,7 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
 
     /**
      * Khóa Room trong transaction khi tạo Reservation.
+     *
      * Đồng thời xác minh Room thuộc đúng Property.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

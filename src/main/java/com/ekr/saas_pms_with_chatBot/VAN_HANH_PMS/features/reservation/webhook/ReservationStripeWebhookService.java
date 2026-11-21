@@ -379,7 +379,8 @@ public class ReservationStripeWebhookService {
 
         if (payment.getStatus() == ReservationPaymentStatus.SUCCEEDED
                 || payment.getStatus() == ReservationPaymentStatus.EXPIRED
-                || payment.getStatus() == ReservationPaymentStatus.CANCELLED) {
+                || payment.getStatus() == ReservationPaymentStatus.CANCELLED
+                || payment.getStatus() == ReservationPaymentStatus.REFUNDED) {
 
             return;
         }
@@ -429,7 +430,8 @@ public class ReservationStripeWebhookService {
 
         if (payment.getStatus() == ReservationPaymentStatus.SUCCEEDED
                 || payment.getStatus() == ReservationPaymentStatus.FAILED
-                || payment.getStatus() == ReservationPaymentStatus.CANCELLED) {
+                || payment.getStatus() == ReservationPaymentStatus.CANCELLED
+                || payment.getStatus() == ReservationPaymentStatus.REFUNDED) {
 
             return;
         }
@@ -633,18 +635,37 @@ public class ReservationStripeWebhookService {
             );
         }
 
-        // Xác minh Reservation Deposit.
+        if (payment.getPaymentType() == ReservationPaymentType.DEPOSIT) {
 
-        if (payment.getPaymentType() != ReservationPaymentType.DEPOSIT
-                || payment.getAmount() == null
-                || reservation.getDepositAmount() == null
-                || payment.getAmount().compareTo(
-                reservation.getDepositAmount()) != 0
-                || !payment.getCurrency().equalsIgnoreCase(
-                reservation.getCurrency())) {
+            if (payment.getAmount() == null
+                    || reservation.getDepositAmount() == null
+                    || payment.getAmount().compareTo(
+                    reservation.getDepositAmount()) != 0
+                    || !payment.getCurrency().equalsIgnoreCase(
+                    reservation.getCurrency())) {
+
+                throw new IllegalArgumentException(
+                        "Reservation Deposit không khớp ReservationPayment"
+                );
+            }
+
+        } else if (payment.getPaymentType()
+                == ReservationPaymentType.BALANCE) {
+
+            if (payment.getAmount() == null
+                    || payment.getAmount().signum() <= 0
+                    || !payment.getCurrency().equalsIgnoreCase(
+                    reservation.getCurrency())) {
+
+                throw new IllegalArgumentException(
+                        "Reservation Balance không khớp ReservationPayment"
+                );
+            }
+
+        } else {
 
             throw new IllegalArgumentException(
-                    "Reservation Deposit không khớp ReservationPayment"
+                    "Payment Type không được hỗ trợ cho Reservation Checkout"
             );
         }
     }

@@ -11,6 +11,8 @@ import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.enums.ReservationStatus
 
 import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.repository.ReservationGuestRepository;
 import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.repository.ReservationPaymentRepository;
+import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.features.checkout.balance.GetCheckoutBalanceResponse;
+import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.features.checkout.balance.GetCheckoutBalanceService;
 
 import com.stripe.exception.StripeException;
 import com.stripe.model.checkout.Session;
@@ -36,15 +38,18 @@ public class CreateReservationCheckoutSessionService {
 
     private final ReservationStripeCheckoutGateway stripeGateway;
 
+    private final GetCheckoutBalanceService balanceService;
 
     public CreateReservationCheckoutSessionService(
             ReservationPaymentRepository paymentRepository,
             ReservationGuestRepository reservationGuestRepository,
-            ReservationStripeCheckoutGateway stripeGateway
+            ReservationStripeCheckoutGateway stripeGateway,
+            GetCheckoutBalanceService balanceService
     ) {
         this.paymentRepository = paymentRepository;
         this.reservationGuestRepository = reservationGuestRepository;
         this.stripeGateway = stripeGateway;
+        this.balanceService = balanceService;
     }
 
 
@@ -93,38 +98,59 @@ public class CreateReservationCheckoutSessionService {
                 phone
         );
 
-        // 4. Reservation phải đang chờ thanh toán.
-        if (reservation.getStatus()
-                != ReservationStatus.PENDING_PAYMENT) {
+        // 4. Kiểm tra trạng thái Reservation theo Payment Type.
+        ReservationPaymentType paymentType = payment.getPaymentType();
+
+        if (paymentType == ReservationPaymentType.DEPOSIT) {
+
+            if (reservation.getStatus()
+                    != ReservationStatus.PENDING_PAYMENT) {
+
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Reservation không ở trạng thái chờ thanh toán"
+                );
+            }
+
+            LocalDateTime now = LocalDateTime.now();
+
+            if (reservation.getPaymentExpiresAt() == null
+                    || !reservation.getPaymentExpiresAt().isAfter(now)) {
+
+                throw new ResponseStatusException(
+                        HttpStatus.GONE,
+                        "Thời gian giữ phòng đã hết hạn"
+                );
+            }
+
+            validatePaymentAmount(
+                    payment,
+                    reservation
+            );
+
+        } else if (paymentType == ReservationPaymentType.BALANCE) {
+
+            if (reservation.getStatus()
+                    != ReservationStatus.CHECKED_IN) {
+
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Reservation phải ở trạng thái CHECKED_IN"
+                );
+            }
+
+            validateBalancePaymentAmount(
+                    payment,
+                    reservation
+            );
+
+        } else {
 
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Reservation không ở trạng thái chờ thanh toán"
+                    "Payment Type không được hỗ trợ cho Checkout Session"
             );
         }
-
-        LocalDateTime now = LocalDateTime.now();
-
-        if (reservation.getPaymentExpiresAt() == null
-                || !reservation.getPaymentExpiresAt().isAfter(now)) {
-
-            throw new ResponseStatusException(
-                    HttpStatus.GONE,
-                    "Thời gian giữ phòng đã hết hạn"
-            );
-        }
-
-        // 5. Chỉ xử lý Deposit trong Slice này.
-        if (payment.getPaymentType()
-                != ReservationPaymentType.DEPOSIT) {
-
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Payment không phải Deposit Payment"
-            );
-        }
-
-        validatePaymentAmount(payment, reservation);
 
         // 6. Payment đã thành công thì không tạo Checkout lần nữa.
         if (payment.getStatus() == ReservationPaymentStatus.SUCCEEDED) {
@@ -190,7 +216,9 @@ public class CreateReservationCheckoutSessionService {
                 "reservation-payment-" + payment.getReservationPaymentId();
 
         String productName =
-                "Reservation Deposit - " + reservation.getReservationCode();
+                payment.getPaymentType() == ReservationPaymentType.DEPOSIT
+                        ? "Reservation Deposit - " + reservation.getReservationCode()
+                        : "Reservation Balance - " + reservation.getReservationCode();
 
         try {
 
@@ -358,6 +386,48 @@ public class CreateReservationCheckoutSessionService {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "Currency của Payment không khớp Reservation"
+            );
+        }
+    }
+
+    private void validateBalancePaymentAmount(
+            ReservationPayment payment,
+            Reservation reservation
+    ) {
+
+        BigDecimal paymentAmount = payment.getAmount();
+
+        if (paymentAmount == null
+                || paymentAmount.signum() <= 0) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "BALANCE Payment Amount không hợp lệ"
+            );
+        }
+
+        String paymentCurrency = payment.getCurrency();
+        String reservationCurrency = reservation.getCurrency();
+
+        if (!StringUtils.hasText(paymentCurrency)
+                || !StringUtils.hasText(reservationCurrency)
+                || !paymentCurrency.equalsIgnoreCase(reservationCurrency)) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Currency của Payment không khớp Reservation"
+            );
+        }
+
+        GetCheckoutBalanceResponse balance =
+                balanceService.calculateBalance(reservation);
+
+        if (paymentAmount.compareTo(balance.balanceDue()) != 0) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Số tiền BALANCE Payment không còn khớp "
+                            + "với số tiền cần thanh toán hiện tại"
             );
         }
     }
