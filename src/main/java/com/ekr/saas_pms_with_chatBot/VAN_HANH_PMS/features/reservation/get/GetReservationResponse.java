@@ -110,6 +110,8 @@ public record GetReservationResponse(
 
             ReservationPaymentStatus status,
 
+            String gatewayRefundId,
+
             LocalDateTime paidAt
 
     ) {

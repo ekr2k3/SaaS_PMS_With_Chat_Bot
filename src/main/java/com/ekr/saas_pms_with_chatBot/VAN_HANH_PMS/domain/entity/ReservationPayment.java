@@ -61,6 +61,9 @@ public class ReservationPayment {
     @Column(name = "gateway_refund_id", length = 255)
     private String gatewayRefundId;
 
+    @Column(name = "note", columnDefinition = "TEXT")
+    private String note;
+
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 

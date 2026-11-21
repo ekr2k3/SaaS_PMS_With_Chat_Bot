@@ -30,6 +30,13 @@ public interface ReservationPaymentRepository
 
     boolean existsByTransactionId(String transactionId);
 
+    Optional<ReservationPayment> findByGatewayRefundId(String gatewayRefundId);
+
+    List<ReservationPayment> findAllByTransactionIdAndPaymentType(
+            String transactionId,
+            com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.enums.ReservationPaymentType paymentType
+    );
+
     /**
      * Khóa toàn bộ Payment thuộc Reservation.
      *

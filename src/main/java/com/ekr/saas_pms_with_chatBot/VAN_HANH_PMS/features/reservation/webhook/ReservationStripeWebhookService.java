@@ -1,16 +1,15 @@
+
 package com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.features.reservation.webhook;
 
 import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.entity.Reservation;
 import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.entity.ReservationPayment;
-
 import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.enums.ReservationPaymentStatus;
 import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.enums.ReservationPaymentType;
 import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.enums.ReservationStatus;
-
 import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.repository.ReservationPaymentRepository;
 import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.domain.repository.ReservationRepository;
-
 import com.ekr.saas_pms_with_chatBot.VAN_HANH_PMS.features.reservation.confirmation.ReservationConfirmedEvent;
+
 import com.stripe.exception.StripeException;
 import com.stripe.model.Event;
 import com.stripe.model.PaymentIntent;
@@ -37,6 +36,7 @@ public class ReservationStripeWebhookService {
     private final ReservationRepository reservationRepository;
 
     private final ReservationStripePaymentIntentGateway paymentIntentGateway;
+
     private final ApplicationEventPublisher eventPublisher;
 
     public ReservationStripeWebhookService(
@@ -51,37 +51,136 @@ public class ReservationStripeWebhookService {
         this.eventPublisher = eventPublisher;
     }
 
+    // =========================================================
+    // 1. PUBLIC WEBHOOK ENTRY POINTS
+    // =========================================================
+
     /**
-     * Event đã được xác minh chữ ký bởi StripeWebhookRouterService.
+     * Xử lý Reservation Webhook được xác minh bởi StripeWebhookRouterService
+     * của luồng thanh toán SaaS cũ.
+     *
+     * PaymentIntent sẽ được truy vấn bằng SaaS Stripe Secret Key.
+     *
+     * Không thay đổi endpoint Webhook SaaS hiện tại.
      */
     @Transactional
     public void handleVerifiedEvent(Event event) {
 
-        Session session = extractSession(event);
+        handleEvent(event, null, null);
+    }
+
+    /**
+     * Xử lý Reservation Webhook được xác minh bởi Property Webhook.
+     *
+     * @param event             Stripe Event đã xác minh chữ ký
+     * @param expectedPropertyId Property đã xác minh Webhook
+     * @param propertySecretKey Stripe Secret Key của Property
+     */
+    @Transactional
+    public void handleVerifiedPropertyEvent(
+            Event event,
+            Long expectedPropertyId,
+            String propertySecretKey
+    ) {
+
+        if (expectedPropertyId == null) {
+            throw new IllegalArgumentException(
+                    "Property ID không hợp lệ"
+            );
+        }
+
+        if (!StringUtils.hasText(propertySecretKey)) {
+            throw new IllegalArgumentException(
+                    "Stripe Property Secret Key không hợp lệ"
+            );
+        }
+
+        handleEvent(
+                event,
+                expectedPropertyId,
+                propertySecretKey
+        );
+    }
+
+    /**
+     * Hàm điều phối chung cho cả SaaS Webhook và Property Webhook.
+     *
+     * expectedPropertyId == null:
+     *     Luồng SaaS cũ.
+     *
+     * expectedPropertyId != null:
+     *     Luồng Stripe riêng của Property.
+     */
+    private void handleEvent(
+            Event event,
+            Long expectedPropertyId,
+            String propertySecretKey
+    ) {
+
+        if (event == null || !StringUtils.hasText(event.getType())) {
+            throw new IllegalArgumentException(
+                    "Stripe Event không hợp lệ"
+            );
+        }
 
         switch (event.getType()) {
 
             case "checkout.session.completed" -> {
+
+                Session session = extractSession(event);
+
                 if ("paid".equalsIgnoreCase(session.getPaymentStatus())) {
-                    handlePaymentSucceeded(session);
+
+                    handlePaymentSucceeded(
+                            session,
+                            expectedPropertyId,
+                            propertySecretKey
+                    );
                 }
+
                 // completed + unpaid có thể là phương thức thanh toán async.
             }
 
-            case "checkout.session.async_payment_succeeded" ->
-                    handlePaymentSucceeded(session);
+            case "checkout.session.async_payment_succeeded" -> {
 
-            case "checkout.session.async_payment_failed" ->
-                    handlePaymentFailed(session);
+                Session session = extractSession(event);
 
-            case "checkout.session.expired" ->
-                    handleCheckoutExpired(session);
+                handlePaymentSucceeded(
+                        session,
+                        expectedPropertyId,
+                        propertySecretKey
+                );
+            }
+
+            case "checkout.session.async_payment_failed" -> {
+
+                Session session = extractSession(event);
+
+                handlePaymentFailed(
+                        session,
+                        expectedPropertyId
+                );
+            }
+
+            case "checkout.session.expired" -> {
+
+                Session session = extractSession(event);
+
+                handleCheckoutExpired(
+                        session,
+                        expectedPropertyId
+                );
+            }
 
             default -> {
-                // Không thuộc phạm vi Reservation Checkout.
+                // Event không thuộc Reservation Checkout thì bỏ qua.
             }
         }
     }
+
+    // =========================================================
+    // 2. EXTRACT STRIPE SESSION
+    // =========================================================
 
     private Session extractSession(Event event) {
 
@@ -100,20 +199,36 @@ public class ReservationStripeWebhookService {
         return session;
     }
 
-    /**
-     * Thanh toán thành công.
-     */
-    private void handlePaymentSucceeded(Session session) {
+    // =========================================================
+    // 3. PAYMENT SUCCEEDED
+    // =========================================================
 
-        // 1. Lock Payment.
+    /**
+     * Xử lý khi Stripe xác nhận thanh toán thành công.
+     */
+    private void handlePaymentSucceeded(
+            Session session,
+            Long expectedPropertyId,
+            String propertySecretKey
+    ) {
+
+        // 1. Lock ReservationPayment.
         ReservationPayment payment = findAndLockPayment(session);
 
-        // 2. Lock Reservation.
+        // 2. Lock Reservation và xác minh Property nếu có.
         Reservation reservation =
-                lockAndValidateReservation(payment, session);
+                lockAndValidateReservation(
+                        payment,
+                        session,
+                        expectedPropertyId
+                );
 
-        // 3. Kiểm tra Checkout Session.
-        validateSession(session, payment, reservation);
+        // 3. Xác minh Checkout Session.
+        validateSession(
+                session,
+                payment,
+                reservation
+        );
 
         // 4. Lấy PaymentIntent ID.
         String paymentIntentId = session.getPaymentIntent();
@@ -124,8 +239,11 @@ public class ReservationStripeWebhookService {
             );
         }
 
-        // 5. Retrieve PaymentIntent từ Stripe.
-        PaymentIntent intent = retrievePaymentIntent(paymentIntentId);
+        // 5. Retrieve PaymentIntent bằng đúng Stripe Secret Key.
+        PaymentIntent intent = retrievePaymentIntent(
+                paymentIntentId,
+                propertySecretKey
+        );
 
         // 6. Xác minh PaymentIntent.
         validatePaymentIntent(
@@ -136,8 +254,10 @@ public class ReservationStripeWebhookService {
         );
 
         // 7. Không cho một PaymentIntent thuộc nhiều Payment.
+
         if (StringUtils.hasText(payment.getPaymentIntentId())
-                && !paymentIntentId.equals(payment.getPaymentIntentId())) {
+                && !paymentIntentId.equals(
+                payment.getPaymentIntentId())) {
 
             throw new IllegalArgumentException(
                     "ReservationPayment đã lưu PaymentIntent ID khác"
@@ -145,7 +265,8 @@ public class ReservationStripeWebhookService {
         }
 
         if (StringUtils.hasText(payment.getTransactionId())
-                && !paymentIntentId.equals(payment.getTransactionId())) {
+                && !paymentIntentId.equals(
+                payment.getTransactionId())) {
 
             throw new IllegalArgumentException(
                     "ReservationPayment đã lưu Transaction ID khác"
@@ -154,6 +275,7 @@ public class ReservationStripeWebhookService {
 
         paymentRepository.findByPaymentIntentId(paymentIntentId)
                 .ifPresent(existing -> {
+
                     if (!existing.getReservationPaymentId()
                             .equals(payment.getReservationPaymentId())) {
 
@@ -164,9 +286,12 @@ public class ReservationStripeWebhookService {
                 });
 
         // 8. Idempotency.
+        // Webhook có thể được Stripe gửi lại nhiều lần.
+
         if (payment.getStatus() == ReservationPaymentStatus.SUCCEEDED) {
 
             if (!paymentIntentId.equals(payment.getPaymentIntentId())) {
+
                 throw new IllegalArgumentException(
                         "Payment đã thành công với PaymentIntent khác"
                 );
@@ -176,6 +301,7 @@ public class ReservationStripeWebhookService {
         }
 
         // 9. Ghi nhận thanh toán.
+
         LocalDateTime paidAt = LocalDateTime.now();
 
         payment.setPaymentIntentId(paymentIntentId);
@@ -189,7 +315,7 @@ public class ReservationStripeWebhookService {
 
         paymentRepository.save(payment);
 
-        // 10. Chỉ confirm nếu Reservation vẫn còn hạn.
+        // 10. Chỉ confirm Reservation nếu vẫn còn hạn thanh toán.
 
         if (reservation.getStatus() == ReservationStatus.PENDING_PAYMENT) {
 
@@ -200,8 +326,7 @@ public class ReservationStripeWebhookService {
 
                 reservationRepository.save(reservation);
 
-                // Phát Event sau khi Reservation được xác nhận.
-                // Email Listener chỉ thực thi sau khi transaction commit.
+                // Listener chỉ gửi Email sau khi transaction commit.
                 eventPublisher.publishEvent(
                         new ReservationConfirmedEvent(
                                 reservation.getReservationId()
@@ -216,21 +341,41 @@ public class ReservationStripeWebhookService {
             }
         }
 
-        // Reservation đã EXPIRED/CANCELLED/... không được tự động mở lại.
+        // Reservation đã EXPIRED/CANCELLED/... không tự động mở lại.
         // Không tự động refund khoản thanh toán đến muộn.
     }
 
-    /**
-     * Thanh toán thất bại.
-     */
-    private void handlePaymentFailed(Session session) {
+    // =========================================================
+    // 4. PAYMENT FAILED
+    // =========================================================
 
+    /**
+     * Xử lý khi thanh toán thất bại.
+     */
+    private void handlePaymentFailed(
+            Session session,
+            Long expectedPropertyId
+    ) {
+
+        // 1. Lock Payment.
         ReservationPayment payment = findAndLockPayment(session);
 
+        // 2. Lock Reservation và xác minh Property.
         Reservation reservation =
-                lockAndValidateReservation(payment, session);
+                lockAndValidateReservation(
+                        payment,
+                        session,
+                        expectedPropertyId
+                );
 
-        validateSessionIdentity(session, payment, reservation);
+        // 3. Xác minh danh tính Checkout Session.
+        validateSessionIdentity(
+                session,
+                payment,
+                reservation
+        );
+
+        // 4. Không ghi đè trạng thái cuối cùng.
 
         if (payment.getStatus() == ReservationPaymentStatus.SUCCEEDED
                 || payment.getStatus() == ReservationPaymentStatus.EXPIRED
@@ -238,6 +383,8 @@ public class ReservationStripeWebhookService {
 
             return;
         }
+
+        // 5. Chỉ chuyển PENDING/PROCESSING thành FAILED.
 
         if (payment.getStatus() == ReservationPaymentStatus.PENDING
                 || payment.getStatus() == ReservationPaymentStatus.PROCESSING) {
@@ -248,17 +395,37 @@ public class ReservationStripeWebhookService {
         }
     }
 
-    /**
-     * Checkout Session hết hạn.
-     */
-    private void handleCheckoutExpired(Session session) {
+    // =========================================================
+    // 5. CHECKOUT SESSION EXPIRED
+    // =========================================================
 
+    /**
+     * Xử lý khi Checkout Session hết hạn.
+     */
+    private void handleCheckoutExpired(
+            Session session,
+            Long expectedPropertyId
+    ) {
+
+        // 1. Lock Payment.
         ReservationPayment payment = findAndLockPayment(session);
 
+        // 2. Lock Reservation và xác minh Property.
         Reservation reservation =
-                lockAndValidateReservation(payment, session);
+                lockAndValidateReservation(
+                        payment,
+                        session,
+                        expectedPropertyId
+                );
 
-        validateSessionIdentity(session, payment, reservation);
+        // 3. Xác minh danh tính Checkout Session.
+        validateSessionIdentity(
+                session,
+                payment,
+                reservation
+        );
+
+        // 4. Không ghi đè trạng thái cuối cùng.
 
         if (payment.getStatus() == ReservationPaymentStatus.SUCCEEDED
                 || payment.getStatus() == ReservationPaymentStatus.FAILED
@@ -266,6 +433,8 @@ public class ReservationStripeWebhookService {
 
             return;
         }
+
+        // 5. Chuyển Payment thành EXPIRED.
 
         if (payment.getStatus() == ReservationPaymentStatus.PENDING
                 || payment.getStatus() == ReservationPaymentStatus.PROCESSING) {
@@ -275,9 +444,13 @@ public class ReservationStripeWebhookService {
             paymentRepository.save(payment);
         }
 
+        // 6. Chỉ chuyển Reservation thành EXPIRED
+        // nếu Reservation vẫn đang chờ thanh toán và đã hết hạn.
+
         if (reservation.getStatus() == ReservationStatus.PENDING_PAYMENT
                 && (reservation.getPaymentExpiresAt() == null
-                || !reservation.getPaymentExpiresAt().isAfter(LocalDateTime.now()))) {
+                || !reservation.getPaymentExpiresAt().isAfter(
+                LocalDateTime.now()))) {
 
             reservation.setStatus(ReservationStatus.EXPIRED);
 
@@ -285,15 +458,20 @@ public class ReservationStripeWebhookService {
         }
     }
 
+    // =========================================================
+    // 6. FIND AND LOCK PAYMENT
+    // =========================================================
+
     /**
-     * Tìm và khóa ReservationPayment theo metadata.
+     * Tìm và khóa ReservationPayment theo metadata của Stripe Session.
      */
     private ReservationPayment findAndLockPayment(Session session) {
 
         Map<String, String> metadata = session.getMetadata();
 
         if (metadata == null
-                || !"RESERVATION".equals(metadata.get("payment_flow"))) {
+                || !"RESERVATION".equals(
+                metadata.get("payment_flow"))) {
 
             throw new IllegalArgumentException(
                     "Stripe Session không thuộc Reservation flow"
@@ -320,12 +498,23 @@ public class ReservationStripeWebhookService {
         return payment;
     }
 
+    // =========================================================
+    // 7. LOCK AND VALIDATE RESERVATION
+    // =========================================================
+
     /**
-     * Lock và xác minh Reservation.
+     * Lock Reservation và xác minh:
+     * - ReservationPayment liên kết đúng Reservation.
+     * - Metadata khớp Reservation.
+     * - Reservation thuộc đúng Property đã xác minh Webhook.
+     *
+     * expectedPropertyId == null:
+     *     Không kiểm tra Property ID bổ sung cho luồng SaaS cũ.
      */
     private Reservation lockAndValidateReservation(
             ReservationPayment payment,
-            Session session
+            Session session,
+            Long expectedPropertyId
     ) {
 
         Reservation paymentReservation = payment.getReservation();
@@ -340,10 +529,18 @@ public class ReservationStripeWebhookService {
 
         Map<String, String> metadata = session.getMetadata();
 
+        if (metadata == null) {
+            throw new IllegalArgumentException(
+                    "Stripe Session không có metadata"
+            );
+        }
+
         Long reservationId = parseId(
                 metadata.get("reservation_id"),
                 "reservation_id"
         );
+
+        // 1. Đối chiếu Reservation ID và Reservation Code.
 
         if (!reservation.getReservationId().equals(reservationId)
                 || !reservation.getReservationCode().equals(
@@ -356,8 +553,27 @@ public class ReservationStripeWebhookService {
             );
         }
 
+        // 2. Nếu đến từ Property Webhook, bắt buộc xác minh Property.
+
+        if (expectedPropertyId != null) {
+
+            if (reservation.getProperty() == null
+                    || reservation.getProperty().getPropertyId() == null
+                    || !expectedPropertyId.equals(
+                    reservation.getProperty().getPropertyId())) {
+
+                throw new IllegalArgumentException(
+                        "Reservation không thuộc Property đã xác minh Webhook"
+                );
+            }
+        }
+
         return reservation;
     }
+
+    // =========================================================
+    // 8. VALIDATE CHECKOUT SESSION
+    // =========================================================
 
     /**
      * Xác minh Checkout Session và khoản Deposit.
@@ -368,7 +584,14 @@ public class ReservationStripeWebhookService {
             Reservation reservation
     ) {
 
-        validateSessionIdentity(session, payment, reservation);
+        // Xác minh danh tính trước.
+        validateSessionIdentity(
+                session,
+                payment,
+                reservation
+        );
+
+        // Checkout Session phải hoàn tất và đã thanh toán.
 
         if (!"complete".equalsIgnoreCase(session.getStatus())
                 || !"paid".equalsIgnoreCase(session.getPaymentStatus())) {
@@ -384,6 +607,8 @@ public class ReservationStripeWebhookService {
             );
         }
 
+        // Xác minh Amount.
+
         long expected = toStripeAmount(
                 payment.getAmount(),
                 payment.getCurrency()
@@ -397,6 +622,8 @@ public class ReservationStripeWebhookService {
             );
         }
 
+        // Xác minh Currency.
+
         if (!StringUtils.hasText(session.getCurrency())
                 || !payment.getCurrency().equalsIgnoreCase(
                 session.getCurrency())) {
@@ -405,6 +632,8 @@ public class ReservationStripeWebhookService {
                     "Currency của Checkout Session không khớp Payment"
             );
         }
+
+        // Xác minh Reservation Deposit.
 
         if (payment.getPaymentType() != ReservationPaymentType.DEPOSIT
                 || payment.getAmount() == null
@@ -420,8 +649,12 @@ public class ReservationStripeWebhookService {
         }
     }
 
+    // =========================================================
+    // 9. VALIDATE CHECKOUT SESSION IDENTITY
+    // =========================================================
+
     /**
-     * Đối chiếu Checkout Session với dữ liệu đã lưu.
+     * Đối chiếu Checkout Session với dữ liệu đã lưu trong Database.
      */
     private void validateSessionIdentity(
             Session session,
@@ -435,6 +668,8 @@ public class ReservationStripeWebhookService {
                 "RESERVATION_PAYMENT_"
                         + payment.getReservationPaymentId();
 
+        // 1. Checkout Session ID.
+
         if (!StringUtils.hasText(session.getId())
                 || !session.getId().equals(
                 payment.getCheckoutSessionId())) {
@@ -444,6 +679,8 @@ public class ReservationStripeWebhookService {
             );
         }
 
+        // 2. Client Reference ID.
+
         if (!expectedReference.equals(
                 session.getClientReferenceId())) {
 
@@ -452,8 +689,11 @@ public class ReservationStripeWebhookService {
             );
         }
 
+        // 3. Metadata.
+
         if (metadata == null
-                || !"RESERVATION".equals(metadata.get("payment_flow"))
+                || !"RESERVATION".equals(
+                metadata.get("payment_flow"))
                 || !payment.getReservationPaymentId().toString().equals(
                 metadata.get("reservation_payment_id"))
                 || !reservation.getReservationId().toString().equals(
@@ -467,12 +707,34 @@ public class ReservationStripeWebhookService {
         }
     }
 
+    // =========================================================
+    // 10. RETRIEVE PAYMENT INTENT
+    // =========================================================
+
     /**
      * Retrieve PaymentIntent.
+     *
+     * propertySecretKey == null:
+     *     Sử dụng SaaS Stripe Secret Key thông qua Gateway cũ.
+     *
+     * propertySecretKey != null:
+     *     Sử dụng Stripe Secret Key riêng của Property.
      */
-    private PaymentIntent retrievePaymentIntent(String paymentIntentId) {
+    private PaymentIntent retrievePaymentIntent(
+            String paymentIntentId,
+            String propertySecretKey
+    ) {
 
         try {
+
+            if (StringUtils.hasText(propertySecretKey)) {
+
+                return paymentIntentGateway.retrievePaymentIntent(
+                        paymentIntentId,
+                        propertySecretKey
+                );
+            }
+
             return paymentIntentGateway.retrievePaymentIntent(
                     paymentIntentId
             );
@@ -486,8 +748,12 @@ public class ReservationStripeWebhookService {
         }
     }
 
+    // =========================================================
+    // 11. VALIDATE PAYMENT INTENT
+    // =========================================================
+
     /**
-     * Xác minh PaymentIntent.
+     * Xác minh PaymentIntent với ReservationPayment.
      */
     private void validatePaymentIntent(
             PaymentIntent intent,
@@ -495,6 +761,8 @@ public class ReservationStripeWebhookService {
             Reservation reservation,
             Session session
     ) {
+
+        // 1. PaymentIntent phải thành công.
 
         if (intent == null
                 || !"succeeded".equalsIgnoreCase(intent.getStatus())) {
@@ -504,6 +772,8 @@ public class ReservationStripeWebhookService {
             );
         }
 
+        // 2. PaymentIntent ID phải khớp Checkout Session.
+
         if (!StringUtils.hasText(session.getPaymentIntent())
                 || !session.getPaymentIntent().equals(intent.getId())) {
 
@@ -511,6 +781,8 @@ public class ReservationStripeWebhookService {
                     "PaymentIntent ID không khớp Checkout Session"
             );
         }
+
+        // 3. Xác minh Amount và Amount Received.
 
         long expected = toStripeAmount(
                 payment.getAmount(),
@@ -527,6 +799,8 @@ public class ReservationStripeWebhookService {
             );
         }
 
+        // 4. Xác minh Currency.
+
         if (!StringUtils.hasText(intent.getCurrency())
                 || !payment.getCurrency().equalsIgnoreCase(
                 intent.getCurrency())) {
@@ -536,8 +810,10 @@ public class ReservationStripeWebhookService {
             );
         }
 
-        // Nếu PaymentIntent có metadata thì đối chiếu.
-        // Session metadata vẫn là liên kết bắt buộc để tương thích Session cũ.
+        // 5. Nếu PaymentIntent có metadata thì đối chiếu.
+        // Session metadata vẫn là liên kết bắt buộc
+        // để tương thích với các Session cũ.
+
         Map<String, String> intentMetadata = intent.getMetadata();
 
         if (intentMetadata != null && !intentMetadata.isEmpty()) {
@@ -558,7 +834,14 @@ public class ReservationStripeWebhookService {
         }
     }
 
-    private Long parseId(String value, String field) {
+    // =========================================================
+    // 12. PARSE STRIPE METADATA ID
+    // =========================================================
+
+    private Long parseId(
+            String value,
+            String field
+    ) {
 
         if (!StringUtils.hasText(value)) {
             throw new IllegalArgumentException(
@@ -567,6 +850,7 @@ public class ReservationStripeWebhookService {
         }
 
         try {
+
             return Long.valueOf(value);
 
         } catch (NumberFormatException exception) {
@@ -578,8 +862,15 @@ public class ReservationStripeWebhookService {
         }
     }
 
+    // =========================================================
+    // 13. CONVERT AMOUNT TO STRIPE MINOR UNIT
+    // =========================================================
+
     /**
-     * Chuyển amount DB sang đơn vị nhỏ nhất Stripe yêu cầu.
+     * Chuyển amount trong Database sang đơn vị nhỏ nhất Stripe yêu cầu.
+     *
+     * VND, JPY, KRW: không nhân 100.
+     * Các currency còn lại: nhân 100.
      */
     private long toStripeAmount(
             BigDecimal amount,

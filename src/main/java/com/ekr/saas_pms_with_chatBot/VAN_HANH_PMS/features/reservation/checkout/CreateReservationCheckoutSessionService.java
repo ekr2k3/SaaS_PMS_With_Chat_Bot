@@ -194,7 +194,9 @@ public class CreateReservationCheckoutSessionService {
 
         try {
 
+
             Session session = stripeGateway.createCheckoutSession(
+                    reservation.getProperty().getPropertyId(),
                     payment.getReservationPaymentId(),
                     reservation.getReservationId(),
                     reservation.getReservationCode(),
@@ -250,7 +252,13 @@ public class CreateReservationCheckoutSessionService {
 
         try {
 
+
+            Long propertyId = payment.getReservation()
+                    .getProperty()
+                    .getPropertyId();
+
             Session session = stripeGateway.retrieveCheckoutSession(
+                    propertyId,
                     payment.getCheckoutSessionId()
             );
 

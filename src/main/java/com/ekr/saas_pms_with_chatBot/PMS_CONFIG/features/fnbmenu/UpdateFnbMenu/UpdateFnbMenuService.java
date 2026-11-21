@@ -60,7 +60,7 @@ public class UpdateFnbMenuService {
         Property property = verifyPropertyAccess(ownerEmail, propertyId);
 
         FnbMenu menu = fnbMenuRepository
-                .findByFnbMenuIdAndProperty_PropertyId(
+                .findByFnbMenuIdAndProperty_PropertyIdForUpdate(
                         menuId,
                         property.getPropertyId()
                 )

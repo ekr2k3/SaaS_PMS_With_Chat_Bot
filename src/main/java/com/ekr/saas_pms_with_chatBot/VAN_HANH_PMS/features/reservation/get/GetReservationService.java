@@ -246,6 +246,7 @@ public class GetReservationService {
                                         ? payment.getCurrency()
                                         : reservation.getCurrency(),
                                 payment.getStatus(),
+                                payment.getGatewayRefundId(),
                                 payment.getPaidAt()
                         )
                 )

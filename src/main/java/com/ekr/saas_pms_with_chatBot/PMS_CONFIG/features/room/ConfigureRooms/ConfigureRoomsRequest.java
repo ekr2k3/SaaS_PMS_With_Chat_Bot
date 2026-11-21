@@ -37,7 +37,7 @@ public class ConfigureRoomsRequest {
         private Integer floor;
 
         @NotBlank(message = "Status khong duoc de trong")
-        private String status;
+        private String status; // Dung cho don dep khong phai avaiable
 
         private String description;
 

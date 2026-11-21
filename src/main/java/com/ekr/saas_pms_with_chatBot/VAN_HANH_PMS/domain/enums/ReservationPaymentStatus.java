@@ -6,5 +6,6 @@ public enum ReservationPaymentStatus {
     SUCCEEDED,
     FAILED,
     CANCELLED,
-    EXPIRED
+    EXPIRED,
+    REFUNDED
 }

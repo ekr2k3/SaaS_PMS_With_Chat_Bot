@@ -471,4 +471,223 @@ public class MailService {
 
         mailSender.send(message);
     }
+
+    public void sendReservationCancellationEmail(
+            String guestEmail,
+            String guestName,
+            String reservationCode,
+            String propertyName,
+            String checkInDate,
+            String checkOutDate,
+            String cancellationReason
+    ) {
+        if (guestEmail == null || guestEmail.isBlank()) {
+            throw new IllegalArgumentException("Guest email không hợp lệ");
+        }
+
+        String safeGuestName = guestName == null || guestName.isBlank()
+                ? "Quý khách" : guestName;
+        String safePropertyName = propertyName == null || propertyName.isBlank()
+                ? "khách sạn" : propertyName;
+        String safeReason = cancellationReason == null || cancellationReason.isBlank()
+                ? "Không cung cấp lý do" : cancellationReason;
+
+        String content = """
+                Xin chào %s,
+
+                Yêu cầu hủy đặt phòng của quý khách đã được hệ thống ghi nhận thành công.
+
+                THÔNG TIN RESERVATION
+                - Mã Reservation: %s
+                - Khách sạn: %s
+                - Ngày nhận phòng: %s
+                - Ngày trả phòng: %s
+                - Lý do hủy: %s
+
+                Trạng thái Reservation hiện tại: CANCELLED.
+
+                Nếu Reservation đủ điều kiện hoàn tiền, hệ thống sẽ tiếp tục xử lý Refund
+                và gửi email cập nhật khi có kết quả cuối cùng từ cổng thanh toán.
+
+                Nếu cần hỗ trợ, vui lòng liên hệ trực tiếp khách sạn.
+
+                Trân trọng,
+                %s
+                """.formatted(
+                safeGuestName,
+                reservationCode,
+                safePropertyName,
+                checkInDate,
+                checkOutDate,
+                safeReason,
+                safePropertyName
+        );
+
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(guestEmail);
+        message.setSubject("[Reservation Cancelled] " + reservationCode);
+        message.setText(content);
+        mailSender.send(message);
+    }
+
+    public void sendReservationRefundStatusEmail(
+            String guestEmail,
+            String guestName,
+            String reservationCode,
+            String propertyName,
+            String refundAmount,
+            String currency,
+            String refundStatus,
+            String refundId,
+            String cancellationReason
+    ) {
+        if (guestEmail == null || guestEmail.isBlank()) {
+            throw new IllegalArgumentException("Guest email không hợp lệ");
+        }
+        if (!"SUCCEEDED".equals(refundStatus) && !"FAILED".equals(refundStatus)) {
+            throw new IllegalArgumentException("Chỉ gửi email cho Refund cuối cùng");
+        }
+
+        String safeGuestName = guestName == null || guestName.isBlank()
+                ? "Quý khách" : guestName;
+        String safePropertyName = propertyName == null || propertyName.isBlank()
+                ? "khách sạn" : propertyName;
+        String safeReason = cancellationReason == null || cancellationReason.isBlank()
+                ? "Không có ghi chú" : cancellationReason;
+        boolean succeeded = "SUCCEEDED".equals(refundStatus);
+
+        String subject = succeeded
+                ? "[Refund Successful] " + reservationCode
+                : "[Refund Failed] " + reservationCode;
+        String resultText = succeeded
+                ? "Yêu cầu hoàn tiền đã được Stripe xác nhận thành công."
+                : "Yêu cầu hoàn tiền không thành công. Vui lòng liên hệ khách sạn để được hỗ trợ.";
+
+        String content = """
+                Xin chào %s,
+
+                %s
+
+                THÔNG TIN REFUND
+                - Mã Reservation: %s
+                - Khách sạn: %s
+                - Mã Refund: %s
+                - Số tiền: %s %s
+                - Trạng thái: %s
+                - Ghi chú: %s
+
+                %s
+
+                Trân trọng,
+                %s
+                """.formatted(
+                safeGuestName,
+                resultText,
+                reservationCode,
+                safePropertyName,
+                refundId == null || refundId.isBlank() ? "Chưa có" : refundId,
+                refundAmount,
+                currency,
+                refundStatus,
+                safeReason,
+                succeeded
+                        ? "Thời gian tiền về tài khoản phụ thuộc vào ngân hàng hoặc đơn vị phát hành thẻ."
+                        : "Vui lòng liên hệ khách sạn nếu quý khách cần hỗ trợ xử lý tiếp.",
+                safePropertyName
+        );
+
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(guestEmail);
+        message.setSubject(subject);
+        message.setText(content);
+        mailSender.send(message);
+    }
+
+    public void sendNoShowCandidateEmail(
+            String guestEmail,
+            String guestName,
+            String reservationCode,
+            String propertyName,
+            String propertyEmail,
+            String checkInDate,
+            String checkOutDate
+    ) {
+
+        if (guestEmail == null || guestEmail.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Guest email không hợp lệ"
+            );
+        }
+
+        if (propertyEmail == null || propertyEmail.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Property email chưa được cấu hình"
+            );
+        }
+
+        String safeGuestName =
+                guestName == null || guestName.isBlank()
+                        ? "Quý khách"
+                        : guestName;
+
+        String safePropertyName =
+                propertyName == null || propertyName.isBlank()
+                        ? "Khách sạn"
+                        : propertyName;
+
+        String content = """
+                Xin chào %s,
+
+                Khách sạn %s đang xác nhận tình trạng nhận phòng
+                của Reservation của quý khách.
+
+                THÔNG TIN RESERVATION
+
+                - Mã Reservation: %s
+                - Khách sạn: %s
+                - Ngày nhận phòng: %s
+                - Ngày trả phòng: %s
+
+                Theo thông tin đặt phòng, ngày nhận phòng của quý khách
+                là ngày hôm nay.
+
+                Vui lòng phản hồi email này để xác nhận một trong các
+                thông tin sau:
+
+                1. Quý khách vẫn dự kiến đến nhận phòng.
+                2. Quý khách không thể đến nhận phòng.
+                3. Quý khách cần hỗ trợ hoặc muốn trao đổi thêm với khách sạn.
+
+                Nếu đã đến khách sạn hoặc đã liên hệ với Lễ tân,
+                quý khách có thể bỏ qua email này.
+
+                Khách sạn sẽ kiểm tra phản hồi và xác nhận tình trạng
+                Reservation theo thông tin nhận được.
+
+                Trân trọng,
+                %s
+
+                Email liên hệ khách sạn: %s
+                """.formatted(
+                safeGuestName,
+                safePropertyName,
+                reservationCode,
+                safePropertyName,
+                checkInDate,
+                checkOutDate,
+                safePropertyName,
+                propertyEmail
+        );
+
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(guestEmail);
+        message.setReplyTo(propertyEmail);
+        message.setSubject(
+                "[Check-in Confirmation] " + reservationCode
+        );
+        message.setText(content);
+
+        mailSender.send(message);
+    }
+
 }

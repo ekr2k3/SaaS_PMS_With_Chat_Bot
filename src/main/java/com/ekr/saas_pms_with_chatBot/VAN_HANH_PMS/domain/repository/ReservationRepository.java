@@ -25,6 +25,12 @@ public interface ReservationRepository
             LocalDateTime expiresAt
     );
 
+    List<Reservation>
+    findAllByProperty_PropertyIdAndStatusOrderByCheckInDateAsc(
+            Long propertyId,
+            ReservationStatus status
+    );
+
     /**
      * Kiểm tra một Room có Reservation trùng khoảng ngày hay không.
      *
