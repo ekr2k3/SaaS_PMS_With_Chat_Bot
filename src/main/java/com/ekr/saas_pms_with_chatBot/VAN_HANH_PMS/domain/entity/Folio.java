@@ -6,6 +6,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Entity
 @Table(
@@ -18,6 +20,10 @@ import java.math.BigDecimal;
                 @Index(
                         name = "idx_folio_guest",
                         columnList = "guest_id"
+                ),
+                @Index(
+                        name = "idx_folio_created_at",
+                        columnList = "created_at"
                 )
         }
 )
@@ -63,6 +69,12 @@ public class Folio {
     )
     private String serviceData;
 
+    @Column(
+            name = "created_at",
+            nullable = false
+    )
+    private LocalDateTime createdAt;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "reservation_id",
@@ -76,4 +88,13 @@ public class Folio {
             nullable = false
     )
     private Guest guest;
+
+    @PrePersist
+    protected void onCreate() {
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now(
+                    ZoneId.of("Asia/Ho_Chi_Minh")
+            );
+        }
+    }
 }

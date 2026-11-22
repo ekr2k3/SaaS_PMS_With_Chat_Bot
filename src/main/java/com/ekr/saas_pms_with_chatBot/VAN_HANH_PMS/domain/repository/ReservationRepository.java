@@ -8,8 +8,9 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,6 +30,48 @@ public interface ReservationRepository
     findAllByProperty_PropertyIdAndStatusOrderByCheckInDateAsc(
             Long propertyId,
             ReservationStatus status
+    );
+
+    @Query("""
+            SELECT COUNT(r)
+            FROM Reservation r
+            WHERE r.property.propertyId = :propertyId
+              AND r.createdAt >= :from
+              AND r.createdAt < :to
+              AND r.status IN :statuses
+            """)
+    long countSuccessfulReservationsCreatedInDate(
+            @Param("propertyId") Long propertyId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("statuses") List<ReservationStatus> statuses
+    );
+
+    @Query("""
+            SELECT COALESCE(SUM(r.depositAmount), 0)
+            FROM Reservation r
+            WHERE r.property.propertyId = :propertyId
+              AND r.createdAt >= :from
+              AND r.createdAt < :to
+            """)
+    BigDecimal sumDepositAmountCreatedInDate(
+            @Param("propertyId") Long propertyId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
+
+    @Query("""
+            SELECT COALESCE(SUM(r.guestCount), 0)
+            FROM Reservation r
+            WHERE r.property.propertyId = :propertyId
+              AND r.status = :checkedInStatus
+              AND r.checkInDate <= :businessDate
+              AND r.checkOutDate > :businessDate
+            """)
+    Long sumCheckedInGuestCount(
+            @Param("propertyId") Long propertyId,
+            @Param("businessDate") LocalDate businessDate,
+            @Param("checkedInStatus") ReservationStatus checkedInStatus
     );
 
     /**

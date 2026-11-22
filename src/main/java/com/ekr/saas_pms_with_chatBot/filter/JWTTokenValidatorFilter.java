@@ -41,7 +41,7 @@ import java.util.Objects;
 @Component
 public class JWTTokenValidatorFilter extends OncePerRequestFilter {
 
-    @Value("${jwt.secret:saasPmsJwtSecretKey2026ProductionSecureKey_9fK3mX7qL2vN8cR5}")
+    @Value("${jwt.secret}")
     private String secret;
 
     @Value("${acc.user}")
@@ -149,11 +149,33 @@ public class JWTTokenValidatorFilter extends OncePerRequestFilter {
             role = "ROLE_OWNER";
         }
 
+        List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+        authorities.add(new SimpleGrantedAuthority(role));
+
+        if ("ROLE_OWNER".equals(role)) {
+            List<RolePermission> ownerPermissions =
+                    rolePermissionRepository
+                            .findAllByRole_NameAndPermission_Status(
+                                    "OWNER",
+                                    Permission.PermissionStatus.ACTIVE
+                            );
+
+            for (RolePermission rolePermission : ownerPermissions) {
+                authorities.add(
+                        new SimpleGrantedAuthority(
+                                "PERM_" + rolePermission
+                                        .getPermission()
+                                        .getCode()
+                        )
+                );
+            }
+        }
+
         UserDetails userDetails =
                 org.springframework.security.core.userdetails.User
                         .withUsername(email)
                         .password("")
-                        .authorities(role)
+                        .authorities(authorities)
                         .build();
 
         UsernamePasswordAuthenticationToken authentication =

@@ -16,7 +16,7 @@ import java.util.Map;
 @Component
 public class JwtHelper {
 
-    @Value("${jwt.secret:saasPmsJwtSecretKey2026ProductionSecureKey_9fK3mX7qL2vN8cR5}")
+    @Value("${jwt.secret}")
     private String secret;
 
     @Value("${jwt.expiration:86400000}")

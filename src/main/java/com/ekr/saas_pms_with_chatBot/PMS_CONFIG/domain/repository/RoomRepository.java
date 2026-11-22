@@ -123,6 +123,65 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     );
 
     /**
+     * Đếm phòng đang được Reservation CHECKED_IN chiếm dụng.
+     *
+     * Không sử dụng Room.status để xác định phòng đang có khách.
+     */
+    @Query("""
+            SELECT COUNT(DISTINCT rr.roomId)
+            FROM ReservationRoom rr
+            JOIN rr.reservation reservation
+            JOIN rr.room room
+            WHERE room.roomType.property.propertyId = :propertyId
+              AND reservation.status = :checkedInStatus
+              AND reservation.checkInDate <= :businessDate
+              AND reservation.checkOutDate > :businessDate
+            """)
+    long countOccupiedRooms(
+            @Param("propertyId") Long propertyId,
+            @Param("businessDate") LocalDate businessDate,
+            @Param("checkedInStatus") ReservationStatus checkedInStatus
+    );
+
+    /**
+     * Đếm phòng có isAvailable = true và không bị Reservation
+     * chiếm dụng trong ngày nghiệp vụ.
+     *
+     * Không kiểm tra Room.status = READY/DIRTY.
+     */
+    @Query("""
+            SELECT COUNT(room)
+            FROM Room room
+            WHERE room.roomType.property.propertyId = :propertyId
+              AND room.isAvailable = true
+              AND NOT EXISTS (
+                  SELECT rr.roomId
+                  FROM ReservationRoom rr
+                  JOIN rr.reservation reservation
+                  WHERE rr.roomId = room.roomId
+                    AND reservation.checkInDate <= :businessDate
+                    AND reservation.checkOutDate > :businessDate
+                    AND (
+                        reservation.status IN :blockingStatuses
+                        OR (
+                            reservation.status = :pendingPaymentStatus
+                            AND (
+                                reservation.paymentExpiresAt IS NULL
+                                OR reservation.paymentExpiresAt > :now
+                            )
+                        )
+                    )
+              )
+            """)
+    long countAvailableRoomsForBusinessDate(
+            @Param("propertyId") Long propertyId,
+            @Param("businessDate") LocalDate businessDate,
+            @Param("now") LocalDateTime now,
+            @Param("blockingStatuses") List<ReservationStatus> blockingStatuses,
+            @Param("pendingPaymentStatus") ReservationStatus pendingPaymentStatus
+    );
+
+    /**
      * Khóa Room trong transaction khi tạo Reservation.
      *
      * Đồng thời xác minh Room thuộc đúng Property.

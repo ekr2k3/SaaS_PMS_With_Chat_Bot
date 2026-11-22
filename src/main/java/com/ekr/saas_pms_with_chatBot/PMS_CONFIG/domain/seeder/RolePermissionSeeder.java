@@ -46,6 +46,7 @@ public class RolePermissionSeeder implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         seedRoles();
         seedPermissionsAndRoleMappings();
+        cleanLegacyPermissions();
     }
 
     private void seedRoles() {
@@ -79,15 +80,50 @@ public class RolePermissionSeeder implements ApplicationRunner {
                                     .build()
                     ));
 
+            if (permission.getStatus()
+                    != Permission.PermissionStatus.ACTIVE) {
+                continue;
+            }
+
+            /*
+             * NIGHT_AUDIT permissions phải chỉ thuộc MANAGER.
+             * Xóa mapping cũ của các Role khác trước khi seed.
+             */
+            if (definition.code().startsWith("NIGHT_AUDIT_")) {
+                Role manager = roleRepository.findByName(MANAGER)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Role seed missing: " + MANAGER
+                        ));
+
+                rolePermissionRepository
+                        .deleteAllByPermission_PermissionIdAndRole_RoleIdNot(
+                                permission.getPermissionId(),
+                                manager.getRoleId()
+                        );
+            }
+
+            if ("PROPERTY_DAILY_STATISTICS_VIEW".equals(
+                    definition.code()
+            )) {
+                Role owner = roleRepository.findByName(OWNER)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Role seed missing: " + OWNER
+                        ));
+
+                rolePermissionRepository
+                        .deleteAllByPermission_PermissionIdAndRole_RoleIdNot(
+                                permission.getPermissionId(),
+                                owner.getRoleId()
+                        );
+            }
+
             for (String roleName : definition.roleNames()) {
                 Role role = roleRepository.findByName(roleName)
                         .orElseThrow(() -> new IllegalStateException(
                                 "Role seed missing: " + roleName
                         ));
 
-                if (role.getStatus() != Role.RoleStatus.ACTIVE
-                        || permission.getStatus()
-                        != Permission.PermissionStatus.ACTIVE) {
+                if (role.getStatus() != Role.RoleStatus.ACTIVE) {
                     continue;
                 }
 
@@ -113,6 +149,26 @@ public class RolePermissionSeeder implements ApplicationRunner {
                 }
             }
         }
+    }
+
+    private void cleanLegacyPermissions() {
+        /*
+         * F36 là chức năng chỉ xem.
+         * PROPERTY_REPORT_CONFIRM không còn được sử dụng.
+         */
+        permissionRepository.findByCode("PROPERTY_REPORT_CONFIRM")
+                .ifPresent(permission -> {
+                    rolePermissionRepository
+                            .deleteAllByPermission_PermissionId(
+                                    permission.getPermissionId()
+                            );
+
+                    permission.setStatus(
+                            Permission.PermissionStatus.INACTIVE
+                    );
+
+                    permissionRepository.save(permission);
+                });
     }
 
     private List<PermissionDefinition> defaultPermissions() {
@@ -148,11 +204,18 @@ public class RolePermissionSeeder implements ApplicationRunner {
         add(definitions, "NO_SHOW_CONFIRM", RECEPTIONIST);
         add(definitions, "CHECKOUT_VIEW", RECEPTIONIST, ACCOUNTANT);
         add(definitions, "CHECKOUT_EXECUTE", RECEPTIONIST);
-        add(definitions, "NIGHT_AUDIT_VIEW", ACCOUNTANT);
-        add(definitions, "NIGHT_AUDIT_ADJUST", ACCOUNTANT);
-        add(definitions, "NIGHT_AUDIT_CONFIRM", ACCOUNTANT);
-        add(definitions, "PROPERTY_REPORT_CONFIRM");
+
+        // Night Audit: chỉ Manager.
+        addOnly(definitions, "NIGHT_AUDIT_VIEW", MANAGER);
+        addOnly(definitions, "NIGHT_AUDIT_ADJUST", MANAGER);
+        addOnly(definitions, "NIGHT_AUDIT_CONFIRM", MANAGER);
+
+        // F36: Owner chỉ xem Daily Statistics của Tenant.
+        addOnly(definitions, "PROPERTY_DAILY_STATISTICS_VIEW", OWNER);
+
+        // F37 - giữ nguyên permission riêng.
         add(definitions, "PROPERTY_MONITOR_VIEW");
+
         add(definitions, "CHATBOT_HOTEL_INFO",
                 RECEPTIONIST, HOUSEKEEPER, ACCOUNTANT, FNB);
         add(definitions, "CHATBOT_REALTIME_INFO",
@@ -166,6 +229,9 @@ public class RolePermissionSeeder implements ApplicationRunner {
         return definitions;
     }
 
+    /*
+     * Permission mặc định: OWNER + MANAGER + các role bổ sung.
+     */
     private void add(
             List<PermissionDefinition> definitions,
             String code,
@@ -179,6 +245,21 @@ public class RolePermissionSeeder implements ApplicationRunner {
         definitions.add(new PermissionDefinition(
                 code,
                 Set.copyOf(roles)
+        ));
+    }
+
+    /*
+     * Permission chỉ cấp cho chính xác các Role được truyền vào.
+     * Không tự động thêm OWNER hoặc MANAGER.
+     */
+    private void addOnly(
+            List<PermissionDefinition> definitions,
+            String code,
+            String... roleNames
+    ) {
+        definitions.add(new PermissionDefinition(
+                code,
+                Set.copyOf(List.of(roleNames))
         ));
     }
 

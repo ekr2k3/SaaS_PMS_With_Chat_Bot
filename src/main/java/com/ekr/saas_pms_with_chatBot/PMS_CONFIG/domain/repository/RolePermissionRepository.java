@@ -17,12 +17,25 @@ public interface RolePermissionRepository
             Long permissionId
     );
 
+    void deleteAllByPermission_PermissionId(Long permissionId);
+
+    void deleteAllByPermission_PermissionIdAndRole_RoleIdNot(
+            Long permissionId,
+            Long roleId
+    );
+
     @EntityGraph(attributePaths = "permission")
     List<RolePermission> findAllByRole_RoleId(Long roleId);
 
     @EntityGraph(attributePaths = "permission")
     List<RolePermission> findAllByRole_RoleIdAndPermission_Status(
             Long roleId,
+            Permission.PermissionStatus permissionStatus
+    );
+
+    @EntityGraph(attributePaths = "permission")
+    List<RolePermission> findAllByRole_NameAndPermission_Status(
+            String roleName,
             Permission.PermissionStatus permissionStatus
     );
 }
